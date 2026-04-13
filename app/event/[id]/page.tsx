@@ -1,0 +1,256 @@
+import { Fragment } from "react";
+import { supabase, EventSummary, SourceBreakdown, RoleBreakdown, QmBySource } from "@/lib/supabase";
+import Link from "next/link";
+import { AdSpendInput } from "./AdSpendInput";
+
+function formatDate(d: string) {
+  return new Date(d).toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function Stat({ value, label, color, sub }: { value: string | number; label: string; color?: string; sub?: string }) {
+  return (
+    <div className="card" style={{ textAlign: "center" }}>
+      <div className="stat-value" style={color ? { color } : undefined}>{value}</div>
+      <div className="stat-label">{label}</div>
+      {sub && <div className="text-muted" style={{ fontSize: 11, marginTop: 4 }}>{sub}</div>}
+    </div>
+  );
+}
+
+const SOURCE_COLORS: Record<string, string> = {
+  Performance: "var(--fg-status-info)",
+  Partner: "var(--chart-partner)",
+  Outbound: "var(--fg-status-warning)",
+  "Account Executive": "var(--chart-ae)",
+  "Email Marketing": "var(--chart-email)",
+  "Directo/Org\u00e1nico": "var(--fg-quaternary)",
+  WhatsApp: "var(--fg-status-success)",
+  LinkedIn: "var(--chart-linkedin)",
+  "BDR Individual": "var(--fg-status-brand)",
+};
+
+export default async function EventDetail({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+
+  const [{ data: events }, { data: sources }, { data: roles }, { data: qmSources }] = await Promise.all([
+    supabase.from("fm_dashboard").select("*").eq("luma_event_id", id),
+    supabase.from("fm_source_breakdown").select("*").eq("luma_event_id", id).order("registros", { ascending: false }),
+    supabase.from("fm_roles_breakdown").select("*").eq("luma_event_id", id).order("total", { ascending: false }).limit(15),
+    supabase.from("fm_qm_by_source").select("*").eq("luma_event_id", id).order("empresas_qm", { ascending: false }),
+  ]);
+
+  const e = (events?.[0] ?? null) as EventSummary | null;
+  const srcData = (sources ?? []) as SourceBreakdown[];
+  const roleData = (roles ?? []) as RoleBreakdown[];
+  const qmData = (qmSources ?? []).filter((q: QmBySource) => q.empresas_qm > 0 || q.empresas_gestion > 0) as QmBySource[];
+
+  if (!e) {
+    return (
+      <main className="dashboard-container">
+        <p>Evento no encontrado.</p>
+        <Link href="/" className="link-back">&larr; Volver</Link>
+      </main>
+    );
+  }
+
+  const maxSrc = Math.max(...srcData.map((s) => s.registros), 1);
+
+  return (
+    <main className="dashboard-container">
+      <Link href="/" className="link-back" style={{ display: "inline-block", marginBottom: 16 }}>&larr; Todos los eventos</Link>
+
+      {/* Header */}
+      <header style={{ marginBottom: 24 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+          <span className={`badge ${e.evento_tipo === "Presencial" ? "badge-presencial" : "badge-virtual"}`}>
+            {e.evento_tipo}
+          </span>
+          <span className="text-muted" style={{ fontSize: 12 }}>
+            {formatDate(e.evento_fecha)}
+          </span>
+        </div>
+        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{e.evento_nombre}</h1>
+        {e.evento_ubicacion && (
+          <p className="text-muted" style={{ fontSize: 13, marginTop: 4 }}>{e.evento_ubicacion}</p>
+        )}
+      </header>
+
+      {/* Personas */}
+      <div className="section-title">Personas</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 28 }}>
+        <Stat value={e.total_registros} label="Registros" />
+        <Stat value={e.total_asistentes || e.total_joined_virtual || "\u2014"} label="Asistentes" />
+        <Stat
+          value={`${e.tasa_conversion_pct ?? 0}%`}
+          label="Tasa asistencia"
+          color={Number(e.tasa_conversion_pct) > 30 ? "var(--fg-status-success)" : Number(e.tasa_conversion_pct) > 15 ? "var(--fg-status-warning)" : "var(--fg-status-error)"}
+        />
+        <Stat value={`${e.icp_pct}%`} label="ICP" color="var(--fg-status-success)" sub={`${e.total_aprobados_icp} aprobados`} />
+      </div>
+
+      {/* Pipeline Empresas */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+        <div className="section-title" style={{ margin: 0 }}>Pipeline Empresas</div>
+        <span style={{
+          fontSize: 10,
+          fontWeight: 600,
+          padding: "2px 8px",
+          borderRadius: 16,
+          background: Number(e.pct_matched) > 70 ? "var(--bg-status-success)" : Number(e.pct_matched) > 40 ? "var(--bg-status-warning)" : "var(--bg-status-error)",
+          color: Number(e.pct_matched) > 70 ? "var(--fg-status-success)" : Number(e.pct_matched) > 40 ? "var(--fg-status-warning)" : "var(--fg-status-error)",
+        }}>
+          {e.pct_matched}% matcheados ({e.total_con_empresa}/{e.total_registros})
+        </span>
+      </div>
+      <div className="card" style={{ marginBottom: 28 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0" }}>
+          <div className="pipeline-step">
+            <div className="pipeline-value">{e.empresas_asistentes}</div>
+            <div className="pipeline-label">Asistentes</div>
+          </div>
+          <div className="pipeline-step">
+            <div className="pipeline-value">{e.gestion_pendiente}</div>
+            <div className="pipeline-label">Pendiente</div>
+          </div>
+          <div className="pipeline-step">
+            <div className="pipeline-value">{e.gestion_viva}</div>
+            <div className="pipeline-label">En gesti&oacute;n</div>
+          </div>
+          <div className="pipeline-step">
+            <div className="pipeline-value" style={{ background: "var(--bg-status-warning)", color: "var(--fg-status-warning)" }}>{e.qm_por_fm}</div>
+            <div className="pipeline-label">QM FM</div>
+          </div>
+          <div className="pipeline-step">
+            <div className="pipeline-value">{e.qm_asistida}</div>
+            <div className="pipeline-label">QM Asistida</div>
+          </div>
+          <div className="pipeline-step">
+            <div className="pipeline-value">{e.demo}</div>
+            <div className="pipeline-label">Demo</div>
+          </div>
+          <div className="pipeline-step">
+            <div className="pipeline-value" style={{ background: "var(--bg-status-success)", color: "var(--fg-status-success)" }}>{e.won}</div>
+            <div className="pipeline-label">Won</div>
+          </div>
+          <div className="pipeline-step">
+            <div className="pipeline-value" style={{ background: "var(--bg-status-success)", color: "var(--fg-status-success)", fontSize: 13 }}>
+              ${Number(e.mrr_won).toLocaleString()}
+            </div>
+            <div className="pipeline-label">MRR</div>
+          </div>
+        </div>
+        {(e.qm_influenciada > 0 || e.qm_generada > 0) && (
+          <div style={{ display: "flex", gap: 16, marginTop: 16, paddingTop: 12, borderTop: "1px solid var(--border-tertiary)" }}>
+            <div style={{ fontSize: 12 }}>
+              <span className="text-muted">QM Influenciada: </span>
+              <span style={{ fontWeight: 600 }}>{e.qm_influenciada}</span>
+            </div>
+            <div style={{ fontSize: 12 }}>
+              <span className="text-muted">QM Generada: </span>
+              <span style={{ fontWeight: 600 }}>{e.qm_generada}</span>
+            </div>
+            <div style={{ fontSize: 12 }}>
+              <span className="text-muted">Descalificadas: </span>
+              <span style={{ fontWeight: 600 }}>{e.descalificadas}</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* QMs by Source */}
+      {qmData.length > 0 && (
+        <>
+          <div className="section-title">QMs por Fuente de Invitaci&oacute;n</div>
+          <div className="card" style={{ marginBottom: 28 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr repeat(3, auto)", gap: "8px 24px", fontSize: 12, alignItems: "center" }}>
+              <div className="text-muted" style={{ fontWeight: 600, fontSize: 10, textTransform: "uppercase" }}>Fuente</div>
+              <div className="text-muted" style={{ fontWeight: 600, fontSize: 10, textTransform: "uppercase", textAlign: "right" }}>Empresas</div>
+              <div className="text-muted" style={{ fontWeight: 600, fontSize: 10, textTransform: "uppercase", textAlign: "right" }}>En gesti&oacute;n</div>
+              <div className="text-muted" style={{ fontWeight: 600, fontSize: 10, textTransform: "uppercase", textAlign: "right" }}>QMs</div>
+              {qmData.map((q, i) => (
+                <Fragment key={`qm-${q.source_group}-${i}`}>
+                  <div style={{ fontWeight: 500 }}>{q.source_group}</div>
+                  <div style={{ textAlign: "right" }}>{q.empresas_matcheadas}</div>
+                  <div style={{ textAlign: "right" }}>{q.empresas_gestion}</div>
+                  <div style={{ textAlign: "right", fontWeight: 700, color: q.empresas_qm > 0 ? "var(--fg-status-warning)" : "inherit" }}>{q.empresas_qm}</div>
+                </Fragment>
+              ))}
+            </div>
+            <div className="text-muted" style={{ fontSize: 10, marginTop: 12, borderTop: "1px solid var(--border-tertiary)", paddingTop: 8 }}>
+              Basado en registros matcheados con empresa ({e.pct_matched}% cobertura)
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Sources + Performance grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 28 }}>
+        {/* Sources */}
+        <div>
+          <div className="section-title">Fuentes de Invitaci&oacute;n</div>
+          <div className="card" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {srcData.map((s) => (
+              <div key={s.source_normalized}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
+                  <span style={{ fontWeight: 500 }}>{s.source_normalized}</span>
+                  <span className="text-muted">
+                    {s.registros} reg &middot; {s.asistentes} asist &middot; {s.aprobados_icp} ICP
+                  </span>
+                </div>
+                <div className="bar">
+                  <div
+                    className="bar-fill"
+                    style={{
+                      width: `${(s.registros / maxSrc) * 100}%`,
+                      background: SOURCE_COLORS[s.source_normalized] ?? "var(--fg-quaternary)",
+                    }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Performance */}
+        <div>
+          <div className="section-title">Performance (Pauta)</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <Stat value={e.registros_performance} label="Registros" color="var(--fg-status-info)" />
+            <Stat value={e.asistentes_performance} label="Asistentes" color="var(--fg-status-info)" />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <div className="card">
+              <div className="text-muted" style={{ fontSize: 11, marginBottom: 4 }}>% asistencia pauta</div>
+              <div className="text-info" style={{ fontSize: 24, fontWeight: 700 }}>
+                {e.pct_asistencia_performance ?? "\u2014"}%
+              </div>
+              <div className="bar" style={{ marginTop: 8 }}>
+                <div className="bar-fill" style={{ width: `${e.pct_asistencia_performance ?? 0}%`, background: "var(--fg-status-info)" }} />
+              </div>
+            </div>
+            <AdSpendInput eventId={e.luma_event_id} currentValue={Number(e.ad_spend)} />
+            {e.costo_por_registro && (
+              <div className="card" style={{ marginTop: 12 }}>
+                <div className="text-muted" style={{ fontSize: 11, marginBottom: 4 }}>Costo por registro</div>
+                <div style={{ fontSize: 24, fontWeight: 700 }}>${e.costo_por_registro}</div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Roles */}
+      <div className="section-title">Roles que m&aacute;s asisten</div>
+      <div className="card">
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+          {roleData.map((r, i) => (
+            <div key={`${r.cargo}-${i}`} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, padding: "4px 0" }}>
+              <span className="text-muted" style={{ fontFamily: "monospace", fontSize: 11, width: 20, textAlign: "right" }}>{r.total}</span>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.cargo}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </main>
+  );
+}

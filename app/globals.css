@@ -1,0 +1,192 @@
+@import "tailwindcss";
+
+/* Chart colors not covered by DS */
+:root {
+  --chart-partner: #8b5cf6;
+  --chart-ae: #ec4899;
+  --chart-email: #06b6d4;
+  --chart-linkedin: #0077b5;
+}
+
+@theme inline {
+  --color-background: var(--bg-secondary);
+  --color-foreground: var(--fg-primary);
+  --font-sans: var(--font-inter);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--bg-secondary);
+  color: var(--fg-primary);
+  font-family: var(--font-inter), Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  margin: 0;
+  padding: 0;
+}
+
+/* --- Layout --- */
+
+.dashboard-container {
+  width: 100%;
+  max-width: 1200px;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  padding: 32px 24px;
+}
+
+/* --- Cards --- */
+
+.card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-tertiary);
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0px 2px 4px rgba(9, 9, 11, 0.08);
+}
+
+/* --- Stats --- */
+
+.stat-value {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 32px;
+  color: var(--fg-primary);
+}
+
+.stat-label {
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--fg-quaternary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 4px;
+}
+
+/* --- Progress bars --- */
+
+.bar {
+  height: 8px;
+  border-radius: 4px;
+  background: #e4e4e7; /* zinc-300 — visible on white cards */
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.5s ease;
+}
+
+/* --- Badges (DS Chip pattern) --- */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 16px;
+  font-size: 10px;
+  line-height: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.badge-presencial {
+  background: var(--bg-status-info);
+  color: var(--fg-status-info);
+}
+
+.badge-virtual {
+  background: var(--bg-status-brand);
+  color: var(--fg-status-brand);
+}
+
+/* --- Pipeline --- */
+
+.pipeline-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  position: relative;
+}
+
+.pipeline-step::after {
+  content: '';
+  position: absolute;
+  right: -50%;
+  top: 1.1rem;
+  width: 100%;
+  height: 2px;
+  background: var(--border-tertiary);
+}
+
+.pipeline-step:last-child::after {
+  display: none;
+}
+
+.pipeline-value {
+  font-size: 18px;
+  font-weight: 700;
+  width: 2.5rem;
+  height: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--bg-status-info);
+  color: var(--fg-status-info);
+  z-index: 1;
+}
+
+.pipeline-label {
+  font-size: 10px;
+  line-height: 14px;
+  color: var(--fg-quaternary);
+  text-align: center;
+  text-transform: uppercase;
+}
+
+/* --- Text utilities --- */
+
+.text-muted { color: var(--fg-quaternary) !important; }
+.text-success { color: var(--fg-status-success) !important; }
+.text-warning { color: var(--fg-status-warning) !important; }
+.text-error { color: var(--fg-status-error) !important; }
+.text-info { color: var(--fg-status-info) !important; }
+.text-brand { color: var(--fg-status-brand) !important; }
+
+/* --- Hover states --- */
+
+.card-hover {
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.card-hover:hover {
+  border-color: var(--border-secondary);
+  box-shadow: 0px 6px 14px rgba(9, 9, 11, 0.08);
+}
+
+.link-back {
+  color: var(--fg-interactive-link-enabled);
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.link-back:hover {
+  color: var(--fg-interactive-link-hovered);
+}
+
+/* --- Section headers --- */
+
+.section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-quaternary);
+  margin-bottom: 12px;
+}
