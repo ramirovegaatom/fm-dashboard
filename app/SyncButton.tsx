@@ -2,8 +2,6 @@
 
 import { useState } from "react";
 
-const SYNC_URL = "https://xwjjvocsnznikeyeqioc.supabase.co/functions/v1/fm-attio-sync";
-
 export function SyncButton() {
   const [syncing, setSyncing] = useState(false);
   const [result, setResult] = useState<string | null>(null);
@@ -12,11 +10,10 @@ export function SyncButton() {
     setSyncing(true);
     setResult(null);
     try {
-      const [r1, r3] = await Promise.all([
-        fetch(`${SYNC_URL}?phase=1`).then(r => r.json()),
-        fetch(`${SYNC_URL}?phase=3`).then(r => r.json()),
-      ]);
-      setResult(`${r1.list_entries ?? 0} empresas, ${r3.deals ?? 0} deals`);
+      const res = await fetch("/api/sync", { method: "POST" });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setResult(`${data.list_entries} empresas, ${data.deals} deals`);
       setTimeout(() => window.location.reload(), 1500);
     } catch {
       setResult("Error al sincronizar");
