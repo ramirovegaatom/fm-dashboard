@@ -1,8 +1,9 @@
 import { Fragment } from "react";
-import { supabase, EventSummary, SourceBreakdown, RoleBreakdown, QmBySource } from "@/lib/supabase";
+import { supabase, EventSummary, SourceBreakdown, RoleBreakdown, QmBySource, CompanyDrill, DealDrill } from "@/lib/supabase";
 import Link from "next/link";
 import { AdSpendInput } from "./AdSpendInput";
 import { RolesChart } from "./RolesChart";
+import { PipelineDrill } from "./PipelineDrill";
 
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" });
@@ -33,17 +34,21 @@ const SOURCE_COLORS: Record<string, string> = {
 export default async function EventDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const [{ data: events }, { data: sources }, { data: roles }, { data: qmSources }] = await Promise.all([
+  const [{ data: events }, { data: sources }, { data: roles }, { data: qmSources }, { data: companiesDrill }, { data: dealsDrill }] = await Promise.all([
     supabase.from("fm_dashboard").select("*").eq("luma_event_id", id),
     supabase.from("fm_source_breakdown").select("*").eq("luma_event_id", id).order("registros", { ascending: false }),
     supabase.from("fm_roles_breakdown").select("*").eq("luma_event_id", id).order("total", { ascending: false }),
     supabase.from("fm_qm_by_source").select("*").eq("luma_event_id", id).order("empresas_qm", { ascending: false }),
+    supabase.from("fm_event_companies_drill").select("*").eq("luma_event_id", id),
+    supabase.from("fm_event_deals_drill").select("*").eq("luma_event_id", id),
   ]);
 
   const e = (events?.[0] ?? null) as EventSummary | null;
   const srcData = (sources ?? []) as SourceBreakdown[];
   const roleData = (roles ?? []) as RoleBreakdown[];
   const qmData = (qmSources ?? []).filter((q: QmBySource) => q.empresas_qm > 0 || q.empresas_gestion > 0) as QmBySource[];
+  const companiesData = (companiesDrill ?? []) as CompanyDrill[];
+  const dealsData = (dealsDrill ?? []) as DealDrill[];
 
   if (!e) {
     return (
@@ -108,60 +113,7 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
           {e.pct_matched}% matcheados ({e.total_con_empresa}/{e.total_registros})
         </span>
       </div>
-      <div className="card" style={{ marginBottom: 28 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0" }}>
-          <div className="pipeline-step">
-            <div className="pipeline-value">{e.empresas_asistentes}</div>
-            <div className="pipeline-label">Asistentes</div>
-          </div>
-          <div className="pipeline-step">
-            <div className="pipeline-value">{e.gestion_pendiente}</div>
-            <div className="pipeline-label">Pendiente</div>
-          </div>
-          <div className="pipeline-step">
-            <div className="pipeline-value">{e.gestion_viva}</div>
-            <div className="pipeline-label">En gesti&oacute;n</div>
-          </div>
-          <div className="pipeline-step">
-            <div className="pipeline-value" style={{ background: "var(--bg-status-warning)", color: "var(--fg-status-warning)" }}>{e.qm_por_fm}</div>
-            <div className="pipeline-label">QM FM</div>
-          </div>
-          <div className="pipeline-step">
-            <div className="pipeline-value">{e.qm_asistida}</div>
-            <div className="pipeline-label">QM Asistida</div>
-          </div>
-          <div className="pipeline-step">
-            <div className="pipeline-value">{e.demo}</div>
-            <div className="pipeline-label">Demo</div>
-          </div>
-          <div className="pipeline-step">
-            <div className="pipeline-value" style={{ background: "var(--bg-status-success)", color: "var(--fg-status-success)" }}>{e.won}</div>
-            <div className="pipeline-label">Won</div>
-          </div>
-          <div className="pipeline-step">
-            <div className="pipeline-value" style={{ background: "var(--bg-status-success)", color: "var(--fg-status-success)", fontSize: 13 }}>
-              ${Number(e.mrr_won).toLocaleString()}
-            </div>
-            <div className="pipeline-label">MRR</div>
-          </div>
-        </div>
-        {(e.qm_influenciada > 0 || e.qm_generada > 0) && (
-          <div style={{ display: "flex", gap: 16, marginTop: 16, paddingTop: 12, borderTop: "1px solid var(--border-tertiary)" }}>
-            <div style={{ fontSize: 12 }}>
-              <span className="text-muted">QM Influenciada: </span>
-              <span style={{ fontWeight: 600 }}>{e.qm_influenciada}</span>
-            </div>
-            <div style={{ fontSize: 12 }}>
-              <span className="text-muted">QM Generada: </span>
-              <span style={{ fontWeight: 600 }}>{e.qm_generada}</span>
-            </div>
-            <div style={{ fontSize: 12 }}>
-              <span className="text-muted">Descalificadas: </span>
-              <span style={{ fontWeight: 600 }}>{e.descalificadas}</span>
-            </div>
-          </div>
-        )}
-      </div>
+      <PipelineDrill event={e} companies={companiesData} deals={dealsData} />
 
       {/* QMs by Source */}
       {qmData.length > 0 && (

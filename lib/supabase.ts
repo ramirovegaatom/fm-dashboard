@@ -77,3 +77,27 @@ export type RoleBreakdown = {
   seniority: string | null;
   aprobados_icp_real: number;
 };
+
+export type CompanyDrill = {
+  luma_event_id: string;
+  attio_company_id: string | null;
+  company_name: string | null;
+  proceso_fm_status: string | null;
+  qm_type: string | null;
+  outbound_stage: string | null;
+  industria: string | null;
+  pais: string | null;
+  asistio: boolean;
+};
+
+export type DealDrill = {
+  luma_event_id: string;
+  attio_deal_id: string;
+  attio_company_id: string;
+  company_name: string | null;
+  deal_name: string | null;
+  stage: string;
+  value_amount: number | null;
+  origen_negocio: string | null;
+  created_at_attio: string;
+};
