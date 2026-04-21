@@ -2,6 +2,7 @@ import { Fragment } from "react";
 import { supabase, EventSummary, SourceBreakdown, RoleBreakdown, QmBySource } from "@/lib/supabase";
 import Link from "next/link";
 import { AdSpendInput } from "./AdSpendInput";
+import { RolesChart } from "./RolesChart";
 
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" });
@@ -35,7 +36,7 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
   const [{ data: events }, { data: sources }, { data: roles }, { data: qmSources }] = await Promise.all([
     supabase.from("fm_dashboard").select("*").eq("luma_event_id", id),
     supabase.from("fm_source_breakdown").select("*").eq("luma_event_id", id).order("registros", { ascending: false }),
-    supabase.from("fm_roles_breakdown").select("*").eq("luma_event_id", id).order("total", { ascending: false }).limit(15),
+    supabase.from("fm_roles_breakdown").select("*").eq("luma_event_id", id).order("total", { ascending: false }),
     supabase.from("fm_qm_by_source").select("*").eq("luma_event_id", id).order("empresas_qm", { ascending: false }),
   ]);
 
@@ -85,7 +86,12 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
           label="Tasa asistencia"
           color={Number(e.tasa_conversion_pct) > 30 ? "var(--fg-status-success)" : Number(e.tasa_conversion_pct) > 15 ? "var(--fg-status-warning)" : "var(--fg-status-error)"}
         />
-        <Stat value={`${e.icp_pct}%`} label="ICP" color="var(--fg-status-success)" sub={`${e.total_aprobados_icp} aprobados`} />
+        <Stat
+          value={`${e.icp_real_pct ?? 0}%`}
+          label="ICP real"
+          color="var(--fg-status-success)"
+          sub={`${e.total_icp_real ?? 0} ICP · ${e.total_aprobados_icp} aprobados Luma (${e.icp_pct}%)`}
+        />
       </div>
 
       {/* Pipeline Empresas */}
@@ -194,7 +200,7 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
                   <span style={{ fontWeight: 500 }}>{s.source_normalized}</span>
                   <span className="text-muted">
-                    {s.registros} reg &middot; {s.asistentes} asist &middot; {s.aprobados_icp} ICP
+                    {s.registros} reg &middot; {s.asistentes} asist &middot; {s.aprobados_icp_real ?? 0} ICP ({s.aprobados_icp} Luma)
                   </span>
                 </div>
                 <div className="bar">
@@ -241,16 +247,7 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
 
       {/* Roles */}
       <div className="section-title">Roles que m&aacute;s asisten</div>
-      <div className="card">
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
-          {roleData.map((r, i) => (
-            <div key={`${r.cargo}-${i}`} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, padding: "4px 0" }}>
-              <span className="text-muted" style={{ fontFamily: "monospace", fontSize: 11, width: 20, textAlign: "right" }}>{r.total}</span>
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.cargo}</span>
-            </div>
-          ))}
-        </div>
-      </div>
+      <RolesChart roles={roleData} />
     </main>
   );
 }

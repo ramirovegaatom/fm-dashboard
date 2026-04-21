@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
-import { EventSummary } from "@/lib/supabase";
+import { EventSummary, PartnerByEvent } from "@/lib/supabase";
 import { SyncButton } from "./SyncButton";
 
 type Filter = "todos" | "Presencial" | "Virtual";
@@ -11,19 +11,40 @@ function formatDate(d: string) {
   return new Date(d).toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-function StatCard({ value, label, color }: { value: string | number; label: string; color?: string }) {
+function StatCard({ value, label, color, sub }: { value: string | number; label: string; color?: string; sub?: string }) {
   return (
     <div className="card" style={{ textAlign: "center" }}>
       <div className="stat-value" style={color ? { color } : undefined}>{value}</div>
       <div className="stat-label">{label}</div>
+      {sub && <div className="text-muted" style={{ fontSize: 10, marginTop: 2 }}>{sub}</div>}
     </div>
   );
 }
 
-export function DashboardClient({ events }: { events: EventSummary[] }) {
+export function DashboardClient({ events, partners }: { events: EventSummary[]; partners: PartnerByEvent[] }) {
   const [filter, setFilter] = useState<Filter>("todos");
+  const [partnerFilter, setPartnerFilter] = useState<string>("todos");
 
-  const all = filter === "todos" ? events : events.filter((e) => e.evento_tipo === filter);
+  const partnerOptions = useMemo(() => {
+    const map = new Map<string, { partner: string; registros: number; eventos: Set<string> }>();
+    for (const p of partners) {
+      const entry = map.get(p.partner) ?? { partner: p.partner, registros: 0, eventos: new Set<string>() };
+      entry.registros += p.registros;
+      entry.eventos.add(p.luma_event_id);
+      map.set(p.partner, entry);
+    }
+    return Array.from(map.values())
+      .map((e) => ({ partner: e.partner, eventos: e.eventos.size }))
+      .sort((a, b) => b.eventos - a.eventos);
+  }, [partners]);
+
+  const eventsWithSelectedPartner = useMemo(() => {
+    if (partnerFilter === "todos") return null;
+    return new Set(partners.filter((p) => p.partner === partnerFilter).map((p) => p.luma_event_id));
+  }, [partners, partnerFilter]);
+
+  const byType = filter === "todos" ? events : events.filter((e) => e.evento_tipo === filter);
+  const all = eventsWithSelectedPartner ? byType.filter((e) => eventsWithSelectedPartner.has(e.luma_event_id)) : byType;
 
   const presenciales = events.filter((e) => e.evento_tipo === "Presencial");
   const virtuales = events.filter((e) => e.evento_tipo === "Virtual");
@@ -33,13 +54,14 @@ export function DashboardClient({ events }: { events: EventSummary[] }) {
       registros: acc.registros + e.total_registros,
       asistentes: acc.asistentes + e.total_asistentes,
       icp: acc.icp + e.total_aprobados_icp,
+      icpReal: acc.icpReal + (e.total_icp_real ?? 0),
       performance: acc.performance + e.registros_performance,
       qm: acc.qm + e.qm_por_fm,
       demo: acc.demo + e.demo,
       won: acc.won + e.won,
       mrr: acc.mrr + Number(e.mrr_won),
     }),
-    { registros: 0, asistentes: 0, icp: 0, performance: 0, qm: 0, demo: 0, won: 0, mrr: 0 }
+    { registros: 0, asistentes: 0, icp: 0, icpReal: 0, performance: 0, qm: 0, demo: 0, won: 0, mrr: 0 }
   );
 
   const totalConEmpresa = all.reduce((acc, e) => acc + (e.total_con_empresa ?? 0), 0);
@@ -58,7 +80,7 @@ export function DashboardClient({ events }: { events: EventSummary[] }) {
           <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Field Marketing Dashboard</h1>
           <SyncButton />
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
           <div style={{ display: "flex", gap: 4 }}>
             {filters.map((f) => (
               <button
@@ -79,6 +101,29 @@ export function DashboardClient({ events }: { events: EventSummary[] }) {
               </button>
             ))}
           </div>
+          {partnerOptions.length > 0 && (
+            <select
+              value={partnerFilter}
+              onChange={(e) => setPartnerFilter(e.target.value)}
+              style={{
+                padding: "4px 10px",
+                fontSize: 11,
+                fontWeight: 600,
+                borderRadius: 8,
+                border: "1px solid var(--border-tertiary)",
+                background: partnerFilter === "todos" ? "var(--bg-primary)" : "var(--fg-primary)",
+                color: partnerFilter === "todos" ? "var(--fg-secondary)" : "var(--bg-primary)",
+                cursor: "pointer",
+              }}
+            >
+              <option value="todos">Todos los partners</option>
+              {partnerOptions.map((p) => (
+                <option key={p.partner} value={p.partner}>
+                  Partner: {p.partner} ({p.eventos})
+                </option>
+              ))}
+            </select>
+          )}
           <span style={{
             fontSize: 10,
             fontWeight: 600,
@@ -95,7 +140,12 @@ export function DashboardClient({ events }: { events: EventSummary[] }) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 12, marginBottom: 32 }}>
         <StatCard value={totals.registros} label="Registros" />
         <StatCard value={totals.asistentes} label="Asistentes" />
-        <StatCard value={totals.icp} label="ICP" color="var(--fg-status-success)" />
+        <StatCard
+          value={totals.icpReal}
+          label="ICP real"
+          color="var(--fg-status-success)"
+          sub={`vs ${totals.icp} aprobados Luma`}
+        />
         <StatCard value={totals.performance} label="Performance" color="var(--fg-status-info)" />
         <StatCard value={totals.qm} label="QM FM" color="var(--fg-status-warning)" />
         <StatCard value={totals.demo} label="Demo" />
@@ -142,8 +192,9 @@ export function DashboardClient({ events }: { events: EventSummary[] }) {
                   <div className="stat-label">Asistentes</div>
                 </div>
                 <div>
-                  <div className="text-success" style={{ fontSize: 18, fontWeight: 700 }}>{e.icp_pct}%</div>
-                  <div className="stat-label">ICP</div>
+                  <div className="text-success" style={{ fontSize: 18, fontWeight: 700 }}>{e.icp_real_pct ?? 0}%</div>
+                  <div className="stat-label">ICP real</div>
+                  <div className="text-muted" style={{ fontSize: 9, marginTop: 1 }}>{e.icp_pct}% Luma</div>
                 </div>
                 <div>
                   <div className="text-info" style={{ fontSize: 18, fontWeight: 700 }}>{e.registros_performance}</div>

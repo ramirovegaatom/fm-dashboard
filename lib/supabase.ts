@@ -38,6 +38,8 @@ export type EventSummary = {
   demo: number;
   won: number;
   mrr_won: number;
+  total_icp_real: number;
+  icp_real_pct: number;
 };
 
 export type SourceBreakdown = {
@@ -47,6 +49,7 @@ export type SourceBreakdown = {
   registros: number;
   aprobados_icp: number;
   asistentes: number;
+  aprobados_icp_real: number;
 };
 
 export type QmBySource = {
@@ -58,10 +61,19 @@ export type QmBySource = {
   empresas_gestion: number;
 };
 
+export type PartnerByEvent = {
+  luma_event_id: string;
+  partner_raw: string;
+  partner: string;
+  registros: number;
+};
+
 export type RoleBreakdown = {
   luma_event_id: string;
   evento_nombre: string;
   cargo: string;
   total: number;
   aprobados_icp: number;
+  seniority: string | null;
+  aprobados_icp_real: number;
 };
