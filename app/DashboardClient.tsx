@@ -21,6 +21,17 @@ function StatCard({ value, label, color, sub }: { value: string | number; label:
   );
 }
 
+function FunnelArrow() {
+  return (
+    <div style={{ display: "flex", justifyContent: "center", alignItems: "center", color: "var(--border-tertiary)" }}>
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M5 12h14" />
+        <path d="m12 5 7 7-7 7" />
+      </svg>
+    </div>
+  );
+}
+
 export function DashboardClient({ events, partners }: { events: EventSummary[]; partners: PartnerByEvent[] }) {
   const [filter, setFilter] = useState<Filter>("todos");
   const [partnerFilter, setPartnerFilter] = useState<string>("todos");
@@ -66,6 +77,18 @@ export function DashboardClient({ events, partners }: { events: EventSummary[]; 
 
   const totalConEmpresa = all.reduce((acc, e) => acc + (e.total_con_empresa ?? 0), 0);
   const pctMatchGlobal = totals.registros > 0 ? Math.round(totalConEmpresa / totals.registros * 100) : 0;
+
+  const pauta = all.reduce(
+    (acc, e) => ({
+      spend: acc.spend + Number(e.ad_spend ?? 0),
+      registros: acc.registros + (e.registros_performance ?? 0),
+      asistentes: acc.asistentes + (e.asistentes_performance ?? 0),
+      eventosConSpend: acc.eventosConSpend + (Number(e.ad_spend ?? 0) > 0 ? 1 : 0),
+    }),
+    { spend: 0, registros: 0, asistentes: 0, eventosConSpend: 0 }
+  );
+  const cplPauta = pauta.registros > 0 ? pauta.spend / pauta.registros : 0;
+  const tasaAsistenciaPauta = pauta.registros > 0 ? Math.round((pauta.asistentes / pauta.registros) * 100) : 0;
 
   const filters: { label: string; value: Filter; count: number }[] = [
     { label: "Todos", value: "todos", count: events.length },
@@ -152,6 +175,51 @@ export function DashboardClient({ events, partners }: { events: EventSummary[]; 
         <StatCard value={totals.won} label="Won" color="var(--fg-status-success)" />
         <StatCard value={`$${totals.mrr.toLocaleString()}`} label="MRR Won" color="var(--fg-status-success)" />
       </div>
+
+      <section style={{ marginBottom: 32 }}>
+        <div className="section-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          Pauta
+          <span className="text-muted" style={{ fontSize: 11, fontWeight: 400 }}>
+            {pauta.eventosConSpend}/{all.length} eventos con spend cargado
+          </span>
+        </div>
+        <div className="card" style={{ padding: 20 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 16, alignItems: "center" }}>
+            <div style={{ textAlign: "center" }}>
+              <div className="stat-value" style={{ color: "var(--fg-status-info)" }}>
+                ${pauta.spend.toLocaleString("es-AR", { maximumFractionDigits: 0 })}
+              </div>
+              <div className="stat-label">Inversión</div>
+              {pauta.eventosConSpend === 0 && (
+                <div className="text-muted" style={{ fontSize: 10, marginTop: 2 }}>pendiente Diego</div>
+              )}
+            </div>
+            <FunnelArrow />
+            <div style={{ textAlign: "center" }}>
+              <div className="stat-value">{pauta.registros.toLocaleString()}</div>
+              <div className="stat-label">Registros pauta</div>
+              {cplPauta > 0 && (
+                <div className="text-muted" style={{ fontSize: 10, marginTop: 2 }}>
+                  CPL ${cplPauta.toLocaleString("es-AR", { maximumFractionDigits: 2 })}
+                </div>
+              )}
+            </div>
+            <FunnelArrow />
+            <div style={{ textAlign: "center" }}>
+              <div className="stat-value">{pauta.asistentes.toLocaleString()}</div>
+              <div className="stat-label">Asistentes pauta</div>
+              {pauta.registros > 0 && (
+                <div className="text-muted" style={{ fontSize: 10, marginTop: 2 }}>
+                  {tasaAsistenciaPauta}% asistencia
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="text-muted" style={{ fontSize: 10, marginTop: 16, textAlign: "center" }}>
+            QMs, Demos y Won de pauta — pendiente integración UTMID en Deal (Bruno, fin de semana)
+          </div>
+        </div>
+      </section>
 
       <div className="section-title">Eventos ({all.length})</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
