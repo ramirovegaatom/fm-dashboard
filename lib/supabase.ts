@@ -65,6 +65,7 @@ export type PartnerByEvent = {
   luma_event_id: string;
   partner_raw: string;
   partner: string;
+  attio_partner_company_id: string | null;
   registros: number;
 };
 
