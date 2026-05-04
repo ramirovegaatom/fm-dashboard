@@ -40,6 +40,15 @@ export type EventSummary = {
   mrr_won: number;
   total_icp_real: number;
   icp_real_pct: number;
+  event_cost: number;
+  pais: string | null;
+  territorio: "Norte" | "Sur" | "Brasil" | null;
+  qm_agendada: number;
+  qm_agendada_pauta: number;
+  qm_asistida_pauta: number;
+  demo_pauta: number;
+  won_pauta: number;
+  mrr_won_pauta: number;
 };
 
 export type SourceBreakdown = {

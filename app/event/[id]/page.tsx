@@ -2,8 +2,10 @@ import { Fragment } from "react";
 import { supabase, EventSummary, SourceBreakdown, RoleBreakdown, QmBySource, CompanyDrill, DealDrill } from "@/lib/supabase";
 import Link from "next/link";
 import { AdSpendInput } from "./AdSpendInput";
+import { EventCostInput } from "./EventCostInput";
 import { RolesChart } from "./RolesChart";
 import { PipelineDrill } from "./PipelineDrill";
+import { TerritoryEditor } from "@/components/TerritoryEditor";
 
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" });
@@ -80,6 +82,17 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
           <p className="text-muted" style={{ fontSize: 13, marginTop: 4 }}>{e.evento_ubicacion}</p>
         )}
       </header>
+
+      {/* Inputs manuales */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 28 }}>
+        <EventCostInput eventId={e.luma_event_id} currentValue={Number(e.event_cost)} />
+        <AdSpendInput eventId={e.luma_event_id} currentValue={Number(e.ad_spend)} />
+        <TerritoryEditor
+          eventId={e.luma_event_id}
+          initialPais={e.pais}
+          initialTerritorio={e.territorio}
+        />
+      </div>
 
       {/* Personas */}
       <div className="section-title">Personas</div>
@@ -186,9 +199,8 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
                 <div className="bar-fill" style={{ width: `${e.pct_asistencia_performance ?? 0}%`, background: "var(--fg-status-info)" }} />
               </div>
             </div>
-            <AdSpendInput eventId={e.luma_event_id} currentValue={Number(e.ad_spend)} />
             {e.costo_por_registro && (
-              <div className="card" style={{ marginTop: 12 }}>
+              <div className="card">
                 <div className="text-muted" style={{ fontSize: 11, marginBottom: 4 }}>Costo por registro</div>
                 <div style={{ fontSize: 24, fontWeight: 700 }}>${e.costo_por_registro}</div>
               </div>
