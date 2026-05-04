@@ -11,6 +11,7 @@ import {
   type TipoFilter,
   type TerritorioFilter,
 } from "@/components/EventFilters";
+import { DateFilter, filterByDateRange, type DateRange } from "@/components/DateFilter";
 import { formatCurrency } from "@/lib/format";
 
 export function PautaClient({
@@ -23,6 +24,7 @@ export function PautaClient({
   const [events, setEvents] = useState(initialEvents);
   const [tipo, setTipo] = useState<TipoFilter>("todos");
   const [territorio, setTerritorio] = useState<TerritorioFilter>("todos");
+  const [dateRange, setDateRange] = useState<DateRange>({});
   const [selected, setSelected] = useState<EventSummary | null>(null);
 
   const partnerByEvent = useMemo(() => {
@@ -33,33 +35,35 @@ export function PautaClient({
     return map;
   }, [partners]);
 
+  const inRange = useMemo(() => filterByDateRange(events, dateRange), [events, dateRange]);
+
   const tipoCounts = useMemo(() => {
-    const c: Record<TipoFilter, number> = { todos: events.length, Presencial: 0, Virtual: 0, "Third Party": 0 };
-    for (const e of events) {
+    const c: Record<TipoFilter, number> = { todos: inRange.length, Presencial: 0, Virtual: 0, "Third Party": 0 };
+    for (const e of inRange) {
       if (e.evento_tipo === "Presencial") c.Presencial++;
       else if (e.evento_tipo === "Virtual") c.Virtual++;
       else if (e.evento_tipo === "Third Party") c["Third Party"]++;
     }
     return c;
-  }, [events]);
+  }, [inRange]);
 
   const territorioCounts = useMemo(() => {
-    const c: Record<TerritorioFilter, number> = { todos: events.length, Norte: 0, Sur: 0, Brasil: 0 };
-    for (const e of events) {
+    const c: Record<TerritorioFilter, number> = { todos: inRange.length, Norte: 0, Sur: 0, Brasil: 0 };
+    for (const e of inRange) {
       if (e.territorio === "Norte") c.Norte++;
       else if (e.territorio === "Sur") c.Sur++;
       else if (e.territorio === "Brasil") c.Brasil++;
     }
     return c;
-  }, [events]);
+  }, [inRange]);
 
   const filtered = useMemo(() => {
-    return events.filter((e) => {
+    return inRange.filter((e) => {
       if (tipo !== "todos" && e.evento_tipo !== tipo) return false;
       if (territorio !== "todos" && e.territorio !== territorio) return false;
       return true;
     });
-  }, [events, tipo, territorio]);
+  }, [inRange, tipo, territorio]);
 
   const totals = useMemo(
     () =>
@@ -90,9 +94,10 @@ export function PautaClient({
 
   return (
     <div>
-      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 24 }}>
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 24, alignItems: "center" }}>
         <TipoEventoPills value={tipo} onChange={setTipo} counts={tipoCounts} />
         <TerritorioPills value={territorio} onChange={setTerritorio} counts={territorioCounts} />
+        <DateFilter value={dateRange} onChange={setDateRange} />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 12, marginBottom: 16 }}>

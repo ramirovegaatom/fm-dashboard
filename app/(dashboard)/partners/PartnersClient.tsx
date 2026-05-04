@@ -11,6 +11,7 @@ import {
   type TipoFilter,
   type TerritorioFilter,
 } from "@/components/EventFilters";
+import { DateFilter, filterByDateRange, type DateRange } from "@/components/DateFilter";
 import { formatCurrency } from "@/lib/format";
 
 export function PartnersClient({
@@ -23,6 +24,7 @@ export function PartnersClient({
   const [events, setEvents] = useState(initialEvents);
   const [tipo, setTipo] = useState<TipoFilter>("todos");
   const [territorio, setTerritorio] = useState<TerritorioFilter>("todos");
+  const [dateRange, setDateRange] = useState<DateRange>({});
   const [partnerFilter, setPartnerFilter] = useState<string>("todos");
   const [selected, setSelected] = useState<EventSummary | null>(null);
 
@@ -34,15 +36,23 @@ export function PartnersClient({
     return map;
   }, [partners]);
 
+  const inRange = useMemo(() => filterByDateRange(events, dateRange), [events, dateRange]);
+
+  const partnerEvents = useMemo(
+    () => inRange.filter((e) => partnerByEvent.has(e.luma_event_id)),
+    [inRange, partnerByEvent]
+  );
+
   const partnerOptions = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const p of partners) counts.set(p.partner, (counts.get(p.partner) ?? 0) + 1);
+    for (const e of partnerEvents) {
+      const p = partnerByEvent.get(e.luma_event_id);
+      if (p) counts.set(p, (counts.get(p) ?? 0) + 1);
+    }
     return Array.from(counts.entries())
       .map(([partner, n]) => ({ partner, eventos: n }))
       .sort((a, b) => b.eventos - a.eventos);
-  }, [partners]);
-
-  const partnerEvents = useMemo(() => events.filter((e) => partnerByEvent.has(e.luma_event_id)), [events, partnerByEvent]);
+  }, [partnerEvents, partnerByEvent]);
 
   const tipoCounts = useMemo(() => {
     const c: Record<TipoFilter, number> = { todos: partnerEvents.length, Presencial: 0, Virtual: 0, "Third Party": 0 };
@@ -123,9 +133,10 @@ export function PartnersClient({
         </select>
       </div>
 
-      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 24 }}>
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 24, alignItems: "center" }}>
         <TipoEventoPills value={tipo} onChange={setTipo} counts={tipoCounts} />
         <TerritorioPills value={territorio} onChange={setTerritorio} counts={territorioCounts} />
+        <DateFilter value={dateRange} onChange={setDateRange} />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 12, marginBottom: 32 }}>
