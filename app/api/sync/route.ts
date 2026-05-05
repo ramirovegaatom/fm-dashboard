@@ -12,7 +12,9 @@ async function getDealsSince(): Promise<string> {
     .order("created_at_attio", { ascending: false })
     .limit(1)
     .maybeSingle();
-  if (data?.created_at_attio) return data.created_at_attio as string;
+  if (data?.created_at_attio) {
+    return new Date(data.created_at_attio as string).toISOString();
+  }
   const fallback = new Date();
   fallback.setUTCDate(fallback.getUTCDate() - DEFAULT_LOOKBACK_DAYS);
   return fallback.toISOString();
