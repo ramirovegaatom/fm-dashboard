@@ -11,14 +11,25 @@ export function SyncButton() {
     setResult(null);
     try {
       const res = await fetch("/api/sync", { method: "POST" });
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      setResult(`${data.list_entries} empresas, ${data.deals} deals`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const p3 = data?.phase3;
+        if (p3?.body?.includes?.("WORKER_RESOURCE_LIMIT")) {
+          setResult("Sync sobrecargado · ya hay sync incremental — reintentá");
+        } else if (p3?.status) {
+          setResult(`Phase ${p3.status}: ${(p3.body ?? "").slice(0, 80) || "sin detalle"}`);
+        } else {
+          setResult(`Error ${res.status}`);
+        }
+        return;
+      }
+      setResult(`${data.list_entries} empresas, ${data.deals} deals nuevos`);
       setTimeout(() => window.location.reload(), 1500);
-    } catch {
-      setResult("Error al sincronizar");
+    } catch (err) {
+      setResult(`Error: ${err instanceof Error ? err.message : "desconocido"}`);
+    } finally {
+      setSyncing(false);
     }
-    setSyncing(false);
   }
 
   return (
