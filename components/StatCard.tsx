@@ -1,20 +1,30 @@
+import { MetricInfo } from "./MetricInfo";
+
 export function StatCard({
   value,
   label,
   color,
   sub,
+  metricKey,
 }: {
   value: string | number;
   label: string;
   color?: string;
   sub?: string;
+  metricKey?: string;
 }) {
   return (
     <div className="card" style={{ textAlign: "center" }}>
       <div className="stat-value" style={color ? { color } : undefined}>
         {value}
       </div>
-      <div className="stat-label">{label}</div>
+      <div
+        className="stat-label"
+        style={{ display: "inline-flex", alignItems: "center", gap: 4, justifyContent: "center" }}
+      >
+        {label}
+        {metricKey && <MetricInfo metricKey={metricKey} size={12} />}
+      </div>
       {sub && (
         <div className="text-muted" style={{ fontSize: 10, marginTop: 2 }}>
           {sub}

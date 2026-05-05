@@ -2,6 +2,20 @@
 
 import { useState } from "react";
 import { CompanyDrill, DealDrill, EventSummary } from "@/lib/supabase";
+import { MetricInfo } from "@/components/MetricInfo";
+
+const METRIC_KEY_FOR: Record<string, string> = {
+  empresas_asistentes: "empresas_asistentes",
+  gestion_pendiente: "gestion_pendiente",
+  gestion_viva: "gestion_viva",
+  qm_fm: "qm_por_fm",
+  qm_influenciada: "qm_influenciada",
+  qm_generada: "qm_generada",
+  descalificadas: "descalificadas",
+  qm_asistida: "qm_asistida",
+  demo: "demo",
+  won: "won",
+};
 
 type Metric =
   | "empresas_asistentes"
@@ -119,7 +133,13 @@ function PipelineStep({
           {value}
         </div>
       </button>
-      <div className="pipeline-label">{label}</div>
+      <div
+        className="pipeline-label"
+        style={{ display: "inline-flex", alignItems: "center", gap: 3, justifyContent: "center" }}
+      >
+        {label}
+        <MetricInfo metricKey={METRIC_KEY_FOR[metric]} size={11} />
+      </div>
     </div>
   );
 }
@@ -157,7 +177,13 @@ export function PipelineDrill({
             >
               ${Number(event.mrr_won).toLocaleString()}
             </div>
-            <div className="pipeline-label">MRR</div>
+            <div
+              className="pipeline-label"
+              style={{ display: "inline-flex", alignItems: "center", gap: 3, justifyContent: "center" }}
+            >
+              MRR
+              <MetricInfo metricKey="mrr_won" size={11} />
+            </div>
           </div>
         </div>
         {(event.qm_influenciada > 0 || event.qm_generada > 0 || event.descalificadas > 0) && (
@@ -203,19 +229,21 @@ function InlineMetric({
 }) {
   const isZero = value === 0;
   return (
-    <button
-      onClick={() => !isZero && onClick(metric)}
-      disabled={isZero}
-      style={{
-        all: "unset",
-        fontSize: 12,
-        cursor: isZero ? "default" : "pointer",
-        opacity: isZero ? 0.5 : 1,
-      }}
-    >
-      <span className="text-muted">{label}: </span>
-      <span style={{ fontWeight: 600, textDecoration: isZero ? "none" : "underline dotted" }}>{value}</span>
-    </button>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 12 }}>
+      <button
+        onClick={() => !isZero && onClick(metric)}
+        disabled={isZero}
+        style={{
+          all: "unset",
+          cursor: isZero ? "default" : "pointer",
+          opacity: isZero ? 0.5 : 1,
+        }}
+      >
+        <span className="text-muted">{label}: </span>
+        <span style={{ fontWeight: 600, textDecoration: isZero ? "none" : "underline dotted" }}>{value}</span>
+      </button>
+      <MetricInfo metricKey={METRIC_KEY_FOR[metric]} size={11} />
+    </span>
   );
 }
 

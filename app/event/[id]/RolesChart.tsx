@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { RoleBreakdown } from "@/lib/supabase";
+import { MetricInfo } from "@/components/MetricInfo";
 
 type Group = "Marketing" | "Ventas" | "Servicio" | "Otros";
 
@@ -140,7 +141,13 @@ export function RolesChart({ roles }: { roles: RoleBreakdown[] }) {
         <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid var(--border-tertiary)" }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
             <div>
-              <div className="section-title" style={{ fontSize: 11 }}>Seniority · {selected}</div>
+              <div
+                className="section-title"
+                style={{ fontSize: 11, display: "inline-flex", alignItems: "center", gap: 4 }}
+              >
+                Seniority · {selected}
+                <MetricInfo metricKey="seniority" size={11} />
+              </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {SENIORITY_ORDER.filter((s) => (selectedGroup.seniority[s] ?? 0) > 0).map((s) => {
                   const n = selectedGroup.seniority[s];

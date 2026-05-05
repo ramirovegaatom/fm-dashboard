@@ -140,14 +140,14 @@ export function PartnersClient({
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 12, marginBottom: 32 }}>
-        <StatCard value={totals.registros} label="Registros" />
-        <StatCard value={totals.asistentes} label="Asistentes" sub={`${tasaAsis}% asist.`} />
-        <StatCard value={totals.qmAgend} label="QM Agend." color="var(--fg-status-warning)" />
-        <StatCard value={totals.qmAsist} label="QM Asist." color="var(--fg-status-warning)" />
-        <StatCard value={totals.demo} label="Demo" />
-        <StatCard value={totals.won} label="Won" color="var(--fg-status-info)" />
-        <StatCard value={formatCurrency(totals.mrr)} label="MRR Won" color="var(--fg-status-success)" />
-        <StatCard value={formatCurrency(totals.cost)} label="Costo total" />
+        <StatCard value={totals.registros} label="Registros" metricKey="total_registros" />
+        <StatCard value={totals.asistentes} label="Asistentes" sub={`${tasaAsis}% asist.`} metricKey="total_asistentes" />
+        <StatCard value={totals.qmAgend} label="QM Agend." color="var(--fg-status-warning)" metricKey="total_qm_agend" />
+        <StatCard value={totals.qmAsist} label="QM Asist." color="var(--fg-status-warning)" metricKey="total_qm_asist" />
+        <StatCard value={totals.demo} label="Demo" metricKey="total_demo" />
+        <StatCard value={totals.won} label="Won" color="var(--fg-status-info)" metricKey="total_won" />
+        <StatCard value={formatCurrency(totals.mrr)} label="MRR Won" color="var(--fg-status-success)" metricKey="total_mrr" />
+        <StatCard value={formatCurrency(totals.cost)} label="Costo total" metricKey="total_cost" />
       </div>
 
       <div className="section-title">Eventos con partner ({filtered.length})</div>

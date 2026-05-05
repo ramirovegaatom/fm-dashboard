@@ -106,14 +106,20 @@ export function PautaClient({
           label="Inversión pauta"
           color="var(--fg-status-info)"
           sub={`${eventosConSpend}/${filtered.length} con spend`}
+          metricKey="total_inversion"
         />
-        <StatCard value={totals.registros} label="Registros pauta" sub={cpl > 0 ? `CPL ${formatCurrency(cpl, { maximumFractionDigits: 2 })}` : undefined} />
-        <StatCard value={totals.asistentes} label="Asistentes pauta" sub={`${tasaAsis}% asist.`} />
-        <StatCard value={totals.qmAgend} label="QM Agend." color="var(--fg-status-warning)" />
-        <StatCard value={totals.qmAsist} label="QM Asist." color="var(--fg-status-warning)" />
-        <StatCard value={totals.demo} label="Demo" />
-        <StatCard value={totals.won} label="Won" color="var(--fg-status-info)" />
-        <StatCard value={formatCurrency(totals.mrr)} label="MRR Won" color="var(--fg-status-success)" />
+        <StatCard
+          value={totals.registros}
+          label="Registros pauta"
+          sub={cpl > 0 ? `CPL ${formatCurrency(cpl, { maximumFractionDigits: 2 })}` : undefined}
+          metricKey="registros_performance"
+        />
+        <StatCard value={totals.asistentes} label="Asistentes pauta" sub={`${tasaAsis}% asist.`} metricKey="asistentes_performance" />
+        <StatCard value={totals.qmAgend} label="QM Agend." color="var(--fg-status-warning)" metricKey="qm_agendada_pauta" />
+        <StatCard value={totals.qmAsist} label="QM Asist." color="var(--fg-status-warning)" metricKey="qm_asistida_pauta" />
+        <StatCard value={totals.demo} label="Demo" metricKey="demo_pauta" />
+        <StatCard value={totals.won} label="Won" color="var(--fg-status-info)" metricKey="won_pauta" />
+        <StatCard value={formatCurrency(totals.mrr)} label="MRR Won" color="var(--fg-status-success)" metricKey="mrr_won_pauta" />
       </div>
 
       <div className="text-muted" style={{ fontSize: 11, marginBottom: 24, padding: "8px 12px", background: "var(--bg-secondary)", borderRadius: 8 }}>

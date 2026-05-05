@@ -2,8 +2,16 @@
 
 import { EventSummary } from "@/lib/supabase";
 import { formatDate, formatCurrency } from "@/lib/format";
+import { MetricInfo } from "./MetricInfo";
 
 export type CardMode = "principal" | "pauta";
+
+const STAT_LABEL_STYLE: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 3,
+  justifyContent: "flex-end",
+};
 
 export function EventCard({
   event,
@@ -26,6 +34,13 @@ export function EventCard({
   const qmAgend = isPauta ? event.qm_agendada_pauta : event.qm_agendada;
   const won = isPauta ? event.won_pauta : event.won;
   const mrrWon = isPauta ? Number(event.mrr_won_pauta) : Number(event.mrr_won);
+
+  const keyRegistros = isPauta ? "registros_performance" : "registros";
+  const keyAsistentes = isPauta ? "asistentes_performance" : "asistentes";
+  const keyQmAgend = isPauta ? "qm_agendada_pauta" : "qm_agendada";
+  const keyWon = isPauta ? "won_pauta" : "won";
+  const keyMrr = isPauta ? "mrr_won_pauta" : "mrr_won";
+  const keyCost = isPauta ? "ad_spend" : "event_cost";
 
   return (
     <button
@@ -76,27 +91,45 @@ export function EventCard({
         <div style={{ display: "flex", gap: 16, flexShrink: 0, textAlign: "right" }}>
           <div>
             <div style={{ fontSize: 18, fontWeight: 700 }}>{registros}</div>
-            <div className="stat-label">Registros</div>
+            <div className="stat-label" style={STAT_LABEL_STYLE}>
+              Registros
+              <MetricInfo metricKey={keyRegistros} size={11} />
+            </div>
           </div>
           <div>
             <div style={{ fontSize: 18, fontWeight: 700 }}>{asistentes || "—"}</div>
-            <div className="stat-label">Asistentes</div>
+            <div className="stat-label" style={STAT_LABEL_STYLE}>
+              Asistentes
+              <MetricInfo metricKey={keyAsistentes} size={11} />
+            </div>
           </div>
           <div>
             <div className="text-warning" style={{ fontSize: 18, fontWeight: 700 }}>{qmAgend}</div>
-            <div className="stat-label">QM Agend.</div>
+            <div className="stat-label" style={STAT_LABEL_STYLE}>
+              QM Agend.
+              <MetricInfo metricKey={keyQmAgend} size={11} />
+            </div>
           </div>
           <div>
             <div className="text-info" style={{ fontSize: 18, fontWeight: 700 }}>{won}</div>
-            <div className="stat-label">Won</div>
+            <div className="stat-label" style={STAT_LABEL_STYLE}>
+              Won
+              <MetricInfo metricKey={keyWon} size={11} />
+            </div>
           </div>
           <div>
             <div className="text-success" style={{ fontSize: 18, fontWeight: 700 }}>{formatCurrency(mrrWon)}</div>
-            <div className="stat-label">MRR</div>
+            <div className="stat-label" style={STAT_LABEL_STYLE}>
+              MRR
+              <MetricInfo metricKey={keyMrr} size={11} />
+            </div>
           </div>
           <div>
             <div style={{ fontSize: 18, fontWeight: 700 }}>{formatCurrency(cost)}</div>
-            <div className="stat-label">{costLabel}</div>
+            <div className="stat-label" style={STAT_LABEL_STYLE}>
+              {costLabel}
+              <MetricInfo metricKey={keyCost} size={11} />
+            </div>
           </div>
         </div>
       </div>

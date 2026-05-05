@@ -6,16 +6,35 @@ import { EventCostInput } from "./EventCostInput";
 import { RolesChart } from "./RolesChart";
 import { PipelineDrill } from "./PipelineDrill";
 import { TerritoryEditor } from "@/components/TerritoryEditor";
+import { MetricInfo } from "@/components/MetricInfo";
 
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-function Stat({ value, label, color, sub }: { value: string | number; label: string; color?: string; sub?: string }) {
+function Stat({
+  value,
+  label,
+  color,
+  sub,
+  metricKey,
+}: {
+  value: string | number;
+  label: string;
+  color?: string;
+  sub?: string;
+  metricKey?: string;
+}) {
   return (
     <div className="card" style={{ textAlign: "center" }}>
       <div className="stat-value" style={color ? { color } : undefined}>{value}</div>
-      <div className="stat-label">{label}</div>
+      <div
+        className="stat-label"
+        style={{ display: "inline-flex", alignItems: "center", gap: 4, justifyContent: "center" }}
+      >
+        {label}
+        {metricKey && <MetricInfo metricKey={metricKey} size={12} />}
+      </div>
       {sub && <div className="text-muted" style={{ fontSize: 11, marginTop: 4 }}>{sub}</div>}
     </div>
   );
@@ -97,18 +116,24 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
       {/* Personas */}
       <div className="section-title">Personas</div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 28 }}>
-        <Stat value={e.total_registros} label="Registros" />
-        <Stat value={e.total_asistentes || e.total_joined_virtual || "\u2014"} label="Asistentes" />
+        <Stat value={e.total_registros} label="Registros" metricKey="registros" />
+        <Stat
+          value={e.total_asistentes || e.total_joined_virtual || "\u2014"}
+          label="Asistentes"
+          metricKey="asistentes"
+        />
         <Stat
           value={`${e.tasa_conversion_pct ?? 0}%`}
           label="Tasa asistencia"
           color={Number(e.tasa_conversion_pct) > 30 ? "var(--fg-status-success)" : Number(e.tasa_conversion_pct) > 15 ? "var(--fg-status-warning)" : "var(--fg-status-error)"}
+          metricKey="tasa_asistencia"
         />
         <Stat
           value={`${e.icp_real_pct ?? 0}%`}
           label="ICP real"
           color="var(--fg-status-success)"
           sub={`${e.total_icp_real ?? 0} ICP · ${e.total_aprobados_icp} aprobados Luma (${e.icp_pct}%)`}
+          metricKey="icp_real"
         />
       </div>
 
@@ -125,6 +150,7 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
         }}>
           {e.pct_matched}% matcheados ({e.total_con_empresa}/{e.total_registros})
         </span>
+        <MetricInfo metricKey="pct_matched" size={13} />
       </div>
       <PipelineDrill event={e} companies={companiesData} deals={dealsData} />
 
@@ -186,12 +212,28 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
         <div>
           <div className="section-title">Performance (Pauta)</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-            <Stat value={e.registros_performance} label="Registros" color="var(--fg-status-info)" />
-            <Stat value={e.asistentes_performance} label="Asistentes" color="var(--fg-status-info)" />
+            <Stat
+              value={e.registros_performance}
+              label="Registros"
+              color="var(--fg-status-info)"
+              metricKey="registros_performance"
+            />
+            <Stat
+              value={e.asistentes_performance}
+              label="Asistentes"
+              color="var(--fg-status-info)"
+              metricKey="asistentes_performance"
+            />
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
             <div className="card">
-              <div className="text-muted" style={{ fontSize: 11, marginBottom: 4 }}>% asistencia pauta</div>
+              <div
+                className="text-muted"
+                style={{ fontSize: 11, marginBottom: 4, display: "inline-flex", alignItems: "center", gap: 4 }}
+              >
+                % asistencia pauta
+                <MetricInfo metricKey="pct_asistencia_performance" size={11} />
+              </div>
               <div className="text-info" style={{ fontSize: 24, fontWeight: 700 }}>
                 {e.pct_asistencia_performance ?? "\u2014"}%
               </div>
@@ -201,7 +243,13 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
             </div>
             {e.costo_por_registro && (
               <div className="card">
-                <div className="text-muted" style={{ fontSize: 11, marginBottom: 4 }}>Costo por registro</div>
+                <div
+                  className="text-muted"
+                  style={{ fontSize: 11, marginBottom: 4, display: "inline-flex", alignItems: "center", gap: 4 }}
+                >
+                  Costo por registro
+                  <MetricInfo metricKey="costo_por_registro" size={11} />
+                </div>
                 <div style={{ fontSize: 24, fontWeight: 700 }}>${e.costo_por_registro}</div>
               </div>
             )}
@@ -210,7 +258,13 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
       </div>
 
       {/* Roles */}
-      <div className="section-title">Roles que m&aacute;s asisten</div>
+      <div
+        className="section-title"
+        style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+      >
+        Roles que m&aacute;s asisten
+        <MetricInfo metricKey="roles" size={13} />
+      </div>
       <RolesChart roles={roleData} />
     </main>
   );

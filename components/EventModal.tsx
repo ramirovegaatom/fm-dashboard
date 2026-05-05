@@ -6,15 +6,27 @@ import { EventSummary } from "@/lib/supabase";
 import { formatDate, formatCurrency } from "@/lib/format";
 import { Modal } from "./Modal";
 import { TerritoryEditor } from "./TerritoryEditor";
+import { MetricInfo } from "./MetricInfo";
 import { saveAdSpend, saveEventCost } from "@/app/event/[id]/actions";
 
 export type ModalMode = "principal" | "pauta";
 
-function CostStat({ label, value }: { label: string; value: string }) {
+function CostStat({ label, value, metricKey }: { label: string; value: string; metricKey?: string }) {
   return (
     <div className="card" style={{ padding: 12, textAlign: "center" }}>
-      <div className="text-muted" style={{ fontSize: 10, marginBottom: 2 }}>
+      <div
+        className="text-muted"
+        style={{
+          fontSize: 10,
+          marginBottom: 2,
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 3,
+          justifyContent: "center",
+        }}
+      >
         {label}
+        {metricKey && <MetricInfo metricKey={metricKey} size={11} />}
       </div>
       <div style={{ fontSize: 16, fontWeight: 700 }}>{value}</div>
     </div>
@@ -178,11 +190,12 @@ export function EventModal({
           </button>
         </div>
         {roi > 0 && isPauta && (
-          <div style={{ marginTop: 10, fontSize: 12 }}>
-            <span className="text-muted">ROI (MRR / Inversión): </span>
+          <div style={{ marginTop: 10, fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
+            <span className="text-muted">ROI (MRR / Inversión):</span>
             <span className="text-success" style={{ fontWeight: 700 }}>
               {Math.round(roi)}%
             </span>
+            <MetricInfo metricKey="roi" size={12} />
           </div>
         )}
       </div>
@@ -190,12 +203,36 @@ export function EventModal({
       {/* Funnel metrics */}
       <div className="section-title">Funnel</div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8, marginBottom: 20 }}>
-        <CostStat label="Registros" value={String(registros)} />
-        <CostStat label={`Asistentes (${tasa}%)`} value={String(asistentes)} />
-        <CostStat label="QM Agend." value={String(qmAgend)} />
-        <CostStat label="QM Asist." value={String(qmAsist)} />
-        <CostStat label="Demo" value={String(demo)} />
-        <CostStat label="Won" value={String(won)} />
+        <CostStat
+          label="Registros"
+          value={String(registros)}
+          metricKey={isPauta ? "registros_performance" : "registros"}
+        />
+        <CostStat
+          label={`Asistentes (${tasa}%)`}
+          value={String(asistentes)}
+          metricKey={isPauta ? "asistentes_performance" : "asistentes"}
+        />
+        <CostStat
+          label="QM Agend."
+          value={String(qmAgend)}
+          metricKey={isPauta ? "qm_agendada_pauta" : "qm_agendada"}
+        />
+        <CostStat
+          label="QM Asist."
+          value={String(qmAsist)}
+          metricKey={isPauta ? "qm_asistida_pauta" : "qm_asistida"}
+        />
+        <CostStat
+          label="Demo"
+          value={String(demo)}
+          metricKey={isPauta ? "demo_pauta" : "demo"}
+        />
+        <CostStat
+          label="Won"
+          value={String(won)}
+          metricKey={isPauta ? "won_pauta" : "won"}
+        />
       </div>
 
       {/* Cost analysis (solo si hay cost) */}
@@ -203,11 +240,31 @@ export function EventModal({
         <>
           <div className="section-title">Análisis de costos</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8, marginBottom: 20 }}>
-            <CostStat label="/ Registro" value={costPerReg > 0 ? formatCurrency(costPerReg, { maximumFractionDigits: 2 }) : "—"} />
-            <CostStat label="/ QM Agend." value={costPerQmAg > 0 ? formatCurrency(costPerQmAg, { maximumFractionDigits: 2 }) : "—"} />
-            <CostStat label="/ QM Asist." value={costPerQmAs > 0 ? formatCurrency(costPerQmAs, { maximumFractionDigits: 2 }) : "—"} />
-            <CostStat label="/ Demo" value={costPerDemo > 0 ? formatCurrency(costPerDemo, { maximumFractionDigits: 2 }) : "—"} />
-            <CostStat label="/ Won" value={costPerWon > 0 ? formatCurrency(costPerWon, { maximumFractionDigits: 2 }) : "—"} />
+            <CostStat
+              label="/ Registro"
+              value={costPerReg > 0 ? formatCurrency(costPerReg, { maximumFractionDigits: 2 }) : "—"}
+              metricKey="costo_por_registro"
+            />
+            <CostStat
+              label="/ QM Agend."
+              value={costPerQmAg > 0 ? formatCurrency(costPerQmAg, { maximumFractionDigits: 2 }) : "—"}
+              metricKey="costo_por_qm_agend"
+            />
+            <CostStat
+              label="/ QM Asist."
+              value={costPerQmAs > 0 ? formatCurrency(costPerQmAs, { maximumFractionDigits: 2 }) : "—"}
+              metricKey="costo_por_qm_asist"
+            />
+            <CostStat
+              label="/ Demo"
+              value={costPerDemo > 0 ? formatCurrency(costPerDemo, { maximumFractionDigits: 2 }) : "—"}
+              metricKey="costo_por_demo"
+            />
+            <CostStat
+              label="/ Won"
+              value={costPerWon > 0 ? formatCurrency(costPerWon, { maximumFractionDigits: 2 }) : "—"}
+              metricKey="costo_por_won"
+            />
           </div>
         </>
       )}
@@ -215,8 +272,19 @@ export function EventModal({
       {/* MRR + Territorio editor */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
         <div className="card" style={{ textAlign: "center" }}>
-          <div className="text-muted" style={{ fontSize: 11, marginBottom: 4 }}>
+          <div
+            className="text-muted"
+            style={{
+              fontSize: 11,
+              marginBottom: 4,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              justifyContent: "center",
+            }}
+          >
             MRR Won{isPauta ? " (pauta)" : ""}
+            <MetricInfo metricKey={isPauta ? "mrr_won_pauta" : "mrr_won"} size={12} />
           </div>
           <div className="text-success" style={{ fontSize: 24, fontWeight: 700 }}>
             {formatCurrency(mrrWon)}
