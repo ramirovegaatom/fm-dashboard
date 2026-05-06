@@ -14,7 +14,10 @@ const METRIC_KEY_FOR: Record<string, string> = {
   descalificadas: "descalificadas",
   qm_asistida: "qm_asistida",
   demo: "demo",
+  revision_interna: "revision_interna",
+  negociacion: "negociacion",
   won: "won",
+  lost: "lost",
 };
 
 type Metric =
@@ -27,7 +30,10 @@ type Metric =
   | "descalificadas"
   | "qm_asistida"
   | "demo"
-  | "won";
+  | "revision_interna"
+  | "negociacion"
+  | "won"
+  | "lost";
 
 const METRIC_LABELS: Record<Metric, string> = {
   empresas_asistentes: "Asistentes",
@@ -39,10 +45,20 @@ const METRIC_LABELS: Record<Metric, string> = {
   descalificadas: "Descalificadas",
   qm_asistida: "QM Asistida",
   demo: "Demo",
+  revision_interna: "Revisión interna",
+  negociacion: "Negociación",
   won: "Won",
+  lost: "Lost",
 };
 
-const DEAL_METRICS = new Set<Metric>(["qm_asistida", "demo", "won"]);
+const DEAL_METRICS = new Set<Metric>([
+  "qm_asistida",
+  "demo",
+  "revision_interna",
+  "negociacion",
+  "won",
+  "lost",
+]);
 
 function filterCompanies(companies: CompanyDrill[], m: Metric): CompanyDrill[] {
   switch (m) {
@@ -76,13 +92,21 @@ function filterCompanies(companies: CompanyDrill[], m: Metric): CompanyDrill[] {
 }
 
 function filterDeals(deals: DealDrill[], m: Metric): DealDrill[] {
+  // 2026-05-06: switch a flags de traza (toco_*) — un deal que pasó por QM
+  // pero ya está en Demo/Won/Lost también cuenta como QM Asistida.
   switch (m) {
     case "qm_asistida":
-      return deals.filter((d) => d.stage === "Llamada de Calificacion de la oportunidad (QM)");
+      return deals.filter((d) => d.toco_qm_asistida);
     case "demo":
-      return deals.filter((d) => d.stage.startsWith("Demostracion"));
+      return deals.filter((d) => d.toco_demo);
+    case "revision_interna":
+      return deals.filter((d) => d.toco_revision);
+    case "negociacion":
+      return deals.filter((d) => d.toco_negociacion);
     case "won":
-      return deals.filter((d) => d.stage === "Won");
+      return deals.filter((d) => d.toco_won);
+    case "lost":
+      return deals.filter((d) => d.toco_lost);
     default:
       return [];
   }
@@ -162,13 +186,15 @@ export function PipelineDrill({
   return (
     <>
       <div className="card" style={{ marginBottom: 28 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", flexWrap: "wrap", gap: 8 }}>
           <PipelineStep value={event.empresas_asistentes} label="Asistentes" metric="empresas_asistentes" onClick={setOpen} />
           <PipelineStep value={event.gestion_pendiente} label="Pendiente" metric="gestion_pendiente" onClick={setOpen} />
           <PipelineStep value={event.gestion_viva} label="En gestión" metric="gestion_viva" onClick={setOpen} />
           <PipelineStep value={event.qm_por_fm} label="QM FM" metric="qm_fm" onClick={setOpen} highlight="warning" />
-          <PipelineStep value={event.qm_asistida} label="QM Asistida" metric="qm_asistida" onClick={setOpen} />
+          <PipelineStep value={event.qm_asistida} label="QM Asist." metric="qm_asistida" onClick={setOpen} />
           <PipelineStep value={event.demo} label="Demo" metric="demo" onClick={setOpen} />
+          <PipelineStep value={event.revision_interna} label="Revisión" metric="revision_interna" onClick={setOpen} />
+          <PipelineStep value={event.negociacion} label="Negoc." metric="negociacion" onClick={setOpen} />
           <PipelineStep value={event.won} label="Won" metric="won" onClick={setOpen} highlight="success" />
           <div className="pipeline-step">
             <div
@@ -186,7 +212,7 @@ export function PipelineDrill({
             </div>
           </div>
         </div>
-        {(event.qm_influenciada > 0 || event.qm_generada > 0 || event.descalificadas > 0) && (
+        {(event.qm_influenciada > 0 || event.qm_generada > 0 || event.descalificadas > 0 || event.lost > 0) && (
           <div
             style={{
               display: "flex",
@@ -194,11 +220,13 @@ export function PipelineDrill({
               marginTop: 16,
               paddingTop: 12,
               borderTop: "1px solid var(--border-tertiary)",
+              flexWrap: "wrap",
             }}
           >
             <InlineMetric label="QM Influenciada" value={event.qm_influenciada} metric="qm_influenciada" onClick={setOpen} />
             <InlineMetric label="QM Generada" value={event.qm_generada} metric="qm_generada" onClick={setOpen} />
             <InlineMetric label="Descalificadas" value={event.descalificadas} metric="descalificadas" onClick={setOpen} />
+            <InlineMetric label="Lost" value={event.lost} metric="lost" onClick={setOpen} />
           </div>
         )}
       </div>

@@ -49,6 +49,10 @@ export type EventSummary = {
   demo_pauta: number;
   won_pauta: number;
   mrr_won_pauta: number;
+  revision_interna: number;
+  negociacion: number;
+  lost: number;
+  lost_pauta: number;
 };
 
 export type SourceBreakdown = {
@@ -110,4 +114,11 @@ export type DealDrill = {
   value_amount: number | null;
   origen_negocio: string | null;
   created_at_attio: string;
+  toco_qm_agendada: boolean;
+  toco_qm_asistida: boolean;
+  toco_demo: boolean;
+  toco_revision: boolean;
+  toco_negociacion: boolean;
+  toco_won: boolean;
+  toco_lost: boolean;
 };
