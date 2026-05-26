@@ -116,7 +116,12 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
       {/* Personas */}
       <div className="section-title">Personas</div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 28 }}>
-        <Stat value={e.total_registros} label="Registros" metricKey="registros" />
+        <Stat
+          value={e.total_aprobados_icp}
+          label="Registros"
+          sub={`${e.total_registros} totales · ${Math.max(e.total_registros - e.total_aprobados_icp, 0)} descalif.`}
+          metricKey="registros"
+        />
         <Stat
           value={e.total_asistentes || e.total_joined_virtual || "\u2014"}
           label="Asistentes"

@@ -113,7 +113,7 @@ function filterDeals(deals: DealDrill[], m: Metric): DealDrill[] {
 }
 
 function attioCompanyUrl(id: string | null) {
-  return id ? `https://app.attio.com/atom/company/${id}` : null;
+  return id ? `https://app.attio.com/atom/companies/record/${id}` : null;
 }
 
 function attioDealUrl(id: string) {

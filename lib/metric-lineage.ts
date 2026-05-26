@@ -58,10 +58,10 @@ export const METRIC_LINEAGE: Record<string, LineageEntry> = {
     label: "Registros",
     flow: LUMA_FLOW,
     table: "contactos_eventos",
-    column: "COUNT(*) por luma_event_id",
-    filter: "todos los registros del evento",
+    column: "COUNT WHERE approval_status = 'approved' (aceptados)",
+    filter: "registros aceptados/aprobados",
     update: "Webhook real-time (Luma → Bruno desde 2026-04-22)",
-    note: "Incluye registros pendientes y rechazados, no solo aprobados.",
+    note: "Desde 2026-05-27 (Jose): Registros = aceptados. El sub muestra totales y descalificados. Excepción: Pauta usa total inscritos (no aceptados) y Fuentes de invitación mantiene total para visibilidad de origen.",
   },
   asistentes: {
     label: "Asistentes",
@@ -170,9 +170,9 @@ export const METRIC_LINEAGE: Record<string, LineageEntry> = {
     label: "QM FM",
     flow: ATTIO_COMPANIES_FLOW,
     table: "fm_attio_companies",
-    column: "outbound_stage IN ('QM AGENDADA', 'PRE-QM - Oportunidad Marketing', 'QM SHOW') · O proceso_fm = 'QM'",
+    column: "outbound_stage IN ('QM AGENDADA', 'PRE-QM - Oportunidad Marketing', 'QM SHOW', 'QM NO SHOW') · O proceso_fm = 'QM'",
     update: "Cron 4h",
-    note: "Empresas marcadas como QM por FM (a nivel Company en Attio).",
+    note: "Empresas marcadas como QM por FM (a nivel Company en Attio). QM NO SHOW se incluye desde 2026-05-27 (pedido Jose) — se agendó la QM aunque no asistieron, sigue siendo QM generada por marketing.",
   },
   qm_generada: {
     label: "QM Generada",
@@ -430,9 +430,10 @@ export const METRIC_LINEAGE: Record<string, LineageEntry> = {
   total_registros: {
     label: "Total registros",
     flow: DERIVED_FLOW,
-    column: "SUM(total_registros) de eventos filtrados",
+    column: "SUM(total_aprobados_icp) de eventos filtrados (aceptados)",
     update: "Recalculado en cada render",
     derivedFrom: ["registros"],
+    note: "Desde 2026-05-27 (Jose): el agregado suma aceptados, no totales. El sub muestra totales y descalificados.",
   },
   total_asistentes: {
     label: "Total asistentes",

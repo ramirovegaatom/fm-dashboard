@@ -26,7 +26,9 @@ export function EventCard({
 }) {
   const isPauta = mode === "pauta";
 
-  const registros = isPauta ? event.registros_performance : event.total_registros;
+  // 2026-05-27 (Jose feedback): "Registros" en modo principal = aceptados (no totales).
+  // Pauta mantiene total_inscritos_pauta (Jose lo pidió explícito).
+  const registros = isPauta ? event.registros_performance : event.total_aprobados_icp;
   const asistentes = isPauta ? event.asistentes_performance : (event.total_asistentes || event.total_joined_virtual || 0);
   const cost = isPauta ? Number(event.ad_spend) : Number(event.event_cost);
   const costLabel = isPauta ? "Inversión" : "Costo";
@@ -35,7 +37,7 @@ export function EventCard({
   const won = isPauta ? event.won_pauta : event.won;
   const mrrWon = isPauta ? Number(event.mrr_won_pauta) : Number(event.mrr_won);
 
-  const keyRegistros = isPauta ? "registros_performance" : "registros";
+  const keyRegistros = isPauta ? "registros_performance" : "total_aprobados_icp";
   const keyAsistentes = isPauta ? "asistentes_performance" : "asistentes";
   const keyQmAgend = isPauta ? "qm_agendada_pauta" : "qm_agendada";
   const keyWon = isPauta ? "won_pauta" : "won";

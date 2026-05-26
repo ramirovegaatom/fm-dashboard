@@ -58,7 +58,9 @@ export function EventModal({
 
   const ev = event;
   const cost = isPauta ? Number(ev.ad_spend) : Number(ev.event_cost);
-  const registros = isPauta ? ev.registros_performance : ev.total_registros;
+  // 2026-05-27 (Jose): Registros principal = aceptados. Pauta queda como total inscritos.
+  const registros = isPauta ? ev.registros_performance : ev.total_aprobados_icp;
+  const descalificados = isPauta ? 0 : Math.max(ev.total_registros - ev.total_aprobados_icp, 0);
   const asistentes = isPauta
     ? ev.asistentes_performance
     : ev.total_asistentes || ev.total_joined_virtual || 0;

@@ -87,7 +87,9 @@ export function PartnersClient({
     () =>
       filtered.reduce(
         (acc, e) => ({
-          registros: acc.registros + e.total_registros,
+          // 2026-05-27 (Jose): Registros = aceptados. totalRegs queda para el sub.
+          registros: acc.registros + e.total_aprobados_icp,
+          totalRegs: acc.totalRegs + e.total_registros,
           asistentes: acc.asistentes + e.total_asistentes,
           qmAgend: acc.qmAgend + e.qm_agendada,
           qmAsist: acc.qmAsist + e.qm_asistida,
@@ -96,12 +98,13 @@ export function PartnersClient({
           mrr: acc.mrr + Number(e.mrr_won),
           cost: acc.cost + Number(e.event_cost),
         }),
-        { registros: 0, asistentes: 0, qmAgend: 0, qmAsist: 0, demo: 0, won: 0, mrr: 0, cost: 0 }
+        { registros: 0, totalRegs: 0, asistentes: 0, qmAgend: 0, qmAsist: 0, demo: 0, won: 0, mrr: 0, cost: 0 }
       ),
     [filtered]
   );
 
   const tasaAsis = totals.registros > 0 ? Math.round((totals.asistentes / totals.registros) * 100) : 0;
+  const descalif = Math.max(totals.totalRegs - totals.registros, 0);
 
   function handleUpdate(updated: EventSummary) {
     setEvents((prev) => prev.map((e) => (e.luma_event_id === updated.luma_event_id ? updated : e)));
@@ -140,7 +143,7 @@ export function PartnersClient({
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 12, marginBottom: 32 }}>
-        <StatCard value={totals.registros} label="Registros" metricKey="total_registros" />
+        <StatCard value={totals.registros} label="Registros" sub={`${totals.totalRegs} totales · ${descalif} descalif.`} metricKey="total_registros" />
         <StatCard value={totals.asistentes} label="Asistentes" sub={`${tasaAsis}% asist.`} metricKey="total_asistentes" />
         <StatCard value={totals.qmAgend} label="QM Agend." color="var(--fg-status-warning)" metricKey="total_qm_agend" />
         <StatCard value={totals.qmAsist} label="QM Asist." color="var(--fg-status-warning)" metricKey="total_qm_asist" />
