@@ -5,6 +5,7 @@ import { WonByCloseDate } from "@/lib/supabase";
 import { DateFilter, DateRange } from "@/components/DateFilter";
 import { StatCard } from "@/components/StatCard";
 import { formatCurrency } from "@/lib/format";
+import { attioDealUrl } from "@/lib/attio";
 
 // 2026-05-27 (Jose H): negocios cerrados (Won) por fecha de cierre.
 // Jose: "ahora nos miden por MRR, no por QM. Un deal que generó QM en enero pero
@@ -93,7 +94,7 @@ export function MrrClient({ deals }: { deals: WonByCloseDate[] }) {
                 <tr key={`${d.attio_deal_id}-${i}`} style={{ borderBottom: "1px solid var(--border-tertiary)" }}>
                   <td style={tdStyle}>
                     <a
-                      href={`https://app.attio.com/atom/deals/record/${d.attio_deal_id}`}
+                      href={attioDealUrl(d.attio_deal_id)}
                       target="_blank"
                       rel="noopener noreferrer"
                       style={{ color: "var(--fg-primary)", textDecoration: "none", fontWeight: 600 }}

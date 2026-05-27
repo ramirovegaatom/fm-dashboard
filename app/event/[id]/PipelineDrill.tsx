@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { CompanyDrill, DealDrill, EventSummary } from "@/lib/supabase";
 import { MetricInfo } from "@/components/MetricInfo";
+import { attioCompanyUrl, attioDealUrl } from "@/lib/attio";
 import { excludeCompany } from "./actions";
 
 const METRIC_KEY_FOR: Record<string, string> = {
@@ -111,14 +112,6 @@ function filterDeals(deals: DealDrill[], m: Metric): DealDrill[] {
     default:
       return [];
   }
-}
-
-function attioCompanyUrl(id: string | null) {
-  return id ? `https://app.attio.com/atom/companies/record/${id}` : null;
-}
-
-function attioDealUrl(id: string) {
-  return `https://app.attio.com/atom/deals/record/${id}`;
 }
 
 function PipelineStep({
