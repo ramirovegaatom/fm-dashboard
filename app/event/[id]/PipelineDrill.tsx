@@ -20,6 +20,8 @@ const METRIC_KEY_FOR: Record<string, string> = {
   negociacion: "negociacion",
   won: "won",
   lost: "lost",
+  qm_show: "qm_show",
+  qm_no_show: "qm_no_show",
 };
 
 type Metric =
@@ -35,7 +37,9 @@ type Metric =
   | "revision_interna"
   | "negociacion"
   | "won"
-  | "lost";
+  | "lost"
+  | "qm_show"
+  | "qm_no_show";
 
 const METRIC_LABELS: Record<Metric, string> = {
   empresas_asistentes: "Asistentes",
@@ -51,6 +55,8 @@ const METRIC_LABELS: Record<Metric, string> = {
   negociacion: "Negociación",
   won: "Won",
   lost: "Lost",
+  qm_show: "QM Show",
+  qm_no_show: "QM No Show",
 };
 
 const DEAL_METRICS = new Set<Metric>([
@@ -88,6 +94,10 @@ function filterCompanies(companies: CompanyDrill[], m: Metric): CompanyDrill[] {
       return companies.filter((c) => c.qm_type === "generada");
     case "descalificadas":
       return companies.filter((c) => c.proceso_fm_status === "Descalificada no ICP");
+    case "qm_show":
+      return companies.filter((c) => c.outbound_stage === "QM SHOW");
+    case "qm_no_show":
+      return companies.filter((c) => c.outbound_stage === "QM NO SHOW");
     default:
       return [];
   }
@@ -206,7 +216,7 @@ export function PipelineDrill({
             </div>
           </div>
         </div>
-        {(event.qm_influenciada > 0 || event.qm_generada > 0 || event.descalificadas > 0 || event.lost > 0) && (
+        {(event.qm_influenciada > 0 || event.qm_generada > 0 || event.descalificadas > 0 || event.lost > 0 || event.qm_show > 0 || event.qm_no_show > 0) && (
           <div
             style={{
               display: "flex",
@@ -217,6 +227,8 @@ export function PipelineDrill({
               flexWrap: "wrap",
             }}
           >
+            <InlineMetric label="QM Show" value={event.qm_show} metric="qm_show" onClick={setOpen} />
+            <InlineMetric label="QM No Show" value={event.qm_no_show} metric="qm_no_show" onClick={setOpen} />
             <InlineMetric label="QM Influenciada" value={event.qm_influenciada} metric="qm_influenciada" onClick={setOpen} />
             <InlineMetric label="QM Generada" value={event.qm_generada} metric="qm_generada" onClick={setOpen} />
             <InlineMetric label="Descalificadas" value={event.descalificadas} metric="descalificadas" onClick={setOpen} />

@@ -53,6 +53,8 @@ export type EventSummary = {
   negociacion: number;
   lost: number;
   lost_pauta: number;
+  qm_show: number;
+  qm_no_show: number;
 };
 
 export type SourceBreakdown = {
