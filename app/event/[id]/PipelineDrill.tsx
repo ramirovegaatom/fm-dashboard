@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { CompanyDrill, DealDrill, EventSummary } from "@/lib/supabase";
 import { MetricInfo } from "@/components/MetricInfo";
+import { excludeCompany } from "./actions";
 
 const METRIC_KEY_FOR: Record<string, string> = {
   empresas_asistentes: "empresas_asistentes",
@@ -238,6 +239,7 @@ export function PipelineDrill({
           companies={listCompanies}
           deals={listDeals}
           isDealMetric={isDealMetric}
+          eventId={event.luma_event_id}
         />
       )}
     </>
@@ -281,12 +283,14 @@ function DrillModal({
   companies,
   deals,
   isDealMetric,
+  eventId,
 }: {
   metric: Metric;
   onClose: () => void;
   companies: CompanyDrill[];
   deals: DealDrill[];
   isDealMetric: boolean;
+  eventId: string;
 }) {
   const count = isDealMetric ? deals.length : companies.length;
 
@@ -354,7 +358,7 @@ function DrillModal({
           ) : isDealMetric ? (
             <DealList deals={deals} />
           ) : (
-            <CompanyList companies={companies} />
+            <CompanyList companies={companies} eventId={eventId} />
           )}
         </div>
       </div>
@@ -362,10 +366,22 @@ function DrillModal({
   );
 }
 
-function CompanyList({ companies }: { companies: CompanyDrill[] }) {
+function CompanyList({ companies, eventId }: { companies: CompanyDrill[]; eventId: string }) {
+  const [isPending, startTransition] = useTransition();
+  const [excluding, setExcluding] = useState<string | null>(null);
   const sorted = [...companies].sort((a, b) =>
     (a.company_name ?? "").localeCompare(b.company_name ?? "")
   );
+
+  function handleExclude(companyId: string | null) {
+    if (!companyId) return;
+    setExcluding(companyId);
+    startTransition(async () => {
+      await excludeCompany(eventId, companyId);
+      setExcluding(null);
+    });
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column" }}>
       {sorted.map((c, i) => {
@@ -390,6 +406,21 @@ function CompanyList({ companies }: { companies: CompanyDrill[] }) {
                 {[c.industria, c.pais, c.proceso_fm_status, c.outbound_stage].filter(Boolean).join(" · ") || "—"}
               </div>
             </div>
+            <button
+              onClick={() => handleExclude(c.attio_company_id)}
+              disabled={isPending && excluding === c.attio_company_id}
+              title="Excluir esta empresa de este evento (no afecta Attio)"
+              style={{
+                all: "unset",
+                cursor: "pointer",
+                fontSize: 11,
+                color: "var(--fg-status-error)",
+                whiteSpace: "nowrap",
+                opacity: isPending && excluding === c.attio_company_id ? 0.5 : 1,
+              }}
+            >
+              {isPending && excluding === c.attio_company_id ? "Excluyendo…" : "✕ Excluir"}
+            </button>
             {url && (
               <a
                 href={url}

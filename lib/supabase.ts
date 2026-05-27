@@ -104,6 +104,16 @@ export type CompanyDrill = {
   asistio: boolean;
 };
 
+export type WonByCloseDate = {
+  attio_deal_id: string;
+  deal_name: string | null;
+  company_name: string | null;
+  campana_evento: string | null;
+  origen_negocio: string | null;
+  value_amount: number | null;
+  close_date: string;
+};
+
 export type DealDrill = {
   luma_event_id: string;
   attio_deal_id: string;

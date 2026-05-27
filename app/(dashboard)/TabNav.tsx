@@ -7,6 +7,7 @@ const TABS = [
   { href: "/", label: "Principal" },
   { href: "/partners", label: "Partners" },
   { href: "/pauta", label: "Pauta" },
+  { href: "/mrr", label: "MRR cerrado" },
 ];
 
 export function TabNav() {

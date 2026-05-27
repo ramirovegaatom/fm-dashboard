@@ -1,10 +1,11 @@
 import { Fragment } from "react";
-import { supabase, EventSummary, SourceBreakdown, RoleBreakdown, QmBySource, CompanyDrill, DealDrill } from "@/lib/supabase";
+import { supabase, EventSummary, SourceBreakdown, RoleBreakdown, QmBySource, CompanyDrill, DealDrill, PartnerByEvent } from "@/lib/supabase";
 import Link from "next/link";
 import { AdSpendInput } from "./AdSpendInput";
 import { EventCostInput } from "./EventCostInput";
 import { RolesChart } from "./RolesChart";
 import { PipelineDrill } from "./PipelineDrill";
+import { PartnerEditor } from "./PartnerEditor";
 import { TerritoryEditor } from "@/components/TerritoryEditor";
 import { MetricInfo } from "@/components/MetricInfo";
 
@@ -55,13 +56,14 @@ const SOURCE_COLORS: Record<string, string> = {
 export default async function EventDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const [{ data: events }, { data: sources }, { data: roles }, { data: qmSources }, { data: companiesDrill }, { data: dealsDrill }] = await Promise.all([
+  const [{ data: events }, { data: sources }, { data: roles }, { data: qmSources }, { data: companiesDrill }, { data: dealsDrill }, { data: partnersData }] = await Promise.all([
     supabase.from("fm_dashboard").select("*").eq("luma_event_id", id),
     supabase.from("fm_source_breakdown").select("*").eq("luma_event_id", id).order("registros", { ascending: false }),
     supabase.from("fm_roles_breakdown").select("*").eq("luma_event_id", id).order("total", { ascending: false }),
     supabase.from("fm_qm_by_source").select("*").eq("luma_event_id", id).order("empresas_qm", { ascending: false }),
     supabase.from("fm_event_companies_drill").select("*").eq("luma_event_id", id),
     supabase.from("fm_event_deals_drill").select("*").eq("luma_event_id", id),
+    supabase.from("fm_partners_by_event").select("*").eq("luma_event_id", id).order("registros", { ascending: false }),
   ]);
 
   const e = (events?.[0] ?? null) as EventSummary | null;
@@ -70,6 +72,7 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
   const qmData = (qmSources ?? []).filter((q: QmBySource) => q.empresas_qm > 0 || q.empresas_gestion > 0) as QmBySource[];
   const companiesData = (companiesDrill ?? []) as CompanyDrill[];
   const dealsData = (dealsDrill ?? []) as DealDrill[];
+  const partners = (partnersData ?? []) as PartnerByEvent[];
 
   if (!e) {
     return (
@@ -103,13 +106,19 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
       </header>
 
       {/* Inputs manuales */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 28 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
         <EventCostInput eventId={e.luma_event_id} currentValue={Number(e.event_cost)} />
         <AdSpendInput eventId={e.luma_event_id} currentValue={Number(e.ad_spend)} />
         <TerritoryEditor
           eventId={e.luma_event_id}
           initialPais={e.pais}
           initialTerritorio={e.territorio}
+        />
+      </div>
+      <div style={{ marginBottom: 28 }}>
+        <PartnerEditor
+          eventId={e.luma_event_id}
+          partners={partners.map((p) => ({ partner: p.partner, registros: p.registros }))}
         />
       </div>
 
