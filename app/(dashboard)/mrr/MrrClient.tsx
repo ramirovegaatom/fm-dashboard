@@ -33,8 +33,8 @@ export function MrrClient({ deals }: { deals: WonByCloseDate[] }) {
 
   const totals = useMemo(() => {
     const mrr = filtered.reduce((acc, d) => acc + Number(d.value_amount ?? 0), 0);
-    const conEvento = filtered.filter((d) => d.campana_evento).length;
-    return { mrr, count: filtered.length, conEvento };
+    const eventos = new Set(filtered.map((d) => d.campana_evento).filter(Boolean)).size;
+    return { mrr, count: filtered.length, eventos };
   }, [filtered]);
 
   return (
@@ -60,15 +60,15 @@ export function MrrClient({ deals }: { deals: WonByCloseDate[] }) {
           ))}
         </select>
         <span className="text-muted" style={{ fontSize: 12 }}>
-          Filtra por <strong>fecha de cierre</strong> del negocio (no del evento)
+          Solo Won de <strong>Field Marketing</strong> (con campaña/evento) · filtra por <strong>fecha de cierre</strong>
         </span>
       </div>
 
       {/* Stats */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 32 }}>
-        <StatCard value={formatCurrency(totals.mrr)} label="MRR cerrado" color="var(--fg-status-success)" />
+        <StatCard value={formatCurrency(totals.mrr)} label="MRR cerrado (FM)" color="var(--fg-status-success)" />
         <StatCard value={totals.count} label="Negocios ganados" />
-        <StatCard value={totals.conEvento} label="Con campaña de evento" sub="atribuibles a FM" />
+        <StatCard value={totals.eventos} label="Eventos distintos" />
       </div>
 
       {/* Tabla */}
