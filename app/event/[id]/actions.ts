@@ -108,3 +108,27 @@ export async function unexcludePartner(eventId: string, partnerName: string) {
   revalidateAll(eventId);
   return { success: true };
 }
+
+// 2026-05-27 (Jose): asignar nomenclatura de campana_evento (Attio) a un evento desde
+// la plataforma. Al crear un evento nuevo, se le asigna su slug; cuando un deal se taggea
+// con ese slug en Attio, el botón de sync lo trae y se atribuye automáticamente.
+export async function addEventMapping(eventId: string, attioCampana: string) {
+  const slug = attioCampana.trim();
+  if (!slug) throw new Error("Nomenclatura vacía");
+  const { error } = await supabase
+    .from("fm_event_mapping")
+    .upsert({ attio_campana: slug, luma_event_id: eventId }, { onConflict: "attio_campana" });
+  if (error) throw new Error(error.message);
+  revalidateAll(eventId);
+  return { success: true };
+}
+
+export async function removeEventMapping(eventId: string, attioCampana: string) {
+  const { error } = await supabase
+    .from("fm_event_mapping")
+    .delete()
+    .eq("attio_campana", attioCampana);
+  if (error) throw new Error(error.message);
+  revalidateAll(eventId);
+  return { success: true };
+}

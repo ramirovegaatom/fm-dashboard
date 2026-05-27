@@ -6,6 +6,7 @@ import { EventCostInput } from "./EventCostInput";
 import { RolesChart } from "./RolesChart";
 import { PipelineDrill } from "./PipelineDrill";
 import { PartnerEditor } from "./PartnerEditor";
+import { EventMappingEditor } from "./EventMappingEditor";
 import { TerritoryEditor } from "@/components/TerritoryEditor";
 import { MetricInfo } from "@/components/MetricInfo";
 
@@ -56,7 +57,7 @@ const SOURCE_COLORS: Record<string, string> = {
 export default async function EventDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const [{ data: events }, { data: sources }, { data: roles }, { data: qmSources }, { data: companiesDrill }, { data: dealsDrill }, { data: partnersData }] = await Promise.all([
+  const [{ data: events }, { data: sources }, { data: roles }, { data: qmSources }, { data: companiesDrill }, { data: dealsDrill }, { data: partnersData }, { data: mappingData }] = await Promise.all([
     supabase.from("fm_dashboard").select("*").eq("luma_event_id", id),
     supabase.from("fm_source_breakdown").select("*").eq("luma_event_id", id).order("registros", { ascending: false }),
     supabase.from("fm_roles_breakdown").select("*").eq("luma_event_id", id).order("total", { ascending: false }),
@@ -64,6 +65,7 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
     supabase.from("fm_event_companies_drill").select("*").eq("luma_event_id", id),
     supabase.from("fm_event_deals_drill").select("*").eq("luma_event_id", id),
     supabase.from("fm_partners_by_event").select("*").eq("luma_event_id", id).order("registros", { ascending: false }),
+    supabase.from("fm_event_mapping").select("attio_campana").eq("luma_event_id", id),
   ]);
 
   const e = (events?.[0] ?? null) as EventSummary | null;
@@ -73,6 +75,7 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
   const companiesData = (companiesDrill ?? []) as CompanyDrill[];
   const dealsData = (dealsDrill ?? []) as DealDrill[];
   const partners = (partnersData ?? []) as PartnerByEvent[];
+  const eventMappings = ((mappingData ?? []) as { attio_campana: string }[]).map((m) => m.attio_campana);
 
   if (!e) {
     return (
@@ -115,11 +118,12 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
           initialTerritorio={e.territorio}
         />
       </div>
-      <div style={{ marginBottom: 28 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 28 }}>
         <PartnerEditor
           eventId={e.luma_event_id}
           partners={partners.map((p) => ({ partner: p.partner, registros: p.registros }))}
         />
+        <EventMappingEditor eventId={e.luma_event_id} mappings={eventMappings} />
       </div>
 
       {/* Personas */}

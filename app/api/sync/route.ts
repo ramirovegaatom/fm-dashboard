@@ -23,28 +23,37 @@ async function getDealsSince(): Promise<string> {
 export async function POST() {
   const since = await getDealsSince();
 
-  const [r1, r3] = await Promise.all([
+  // phase=tagged trae deals con campana_evento mapeado en fm_event_mapping
+  // (aunque su empresa no esté en la list events_companies). Jose 2026-05-27.
+  const [r1, r3, rt] = await Promise.all([
     fetch(`${SYNC_URL}?phase=1`),
     fetch(`${SYNC_URL}?phase=3&since=${encodeURIComponent(since)}`),
+    fetch(`${SYNC_URL}?phase=tagged`),
   ]);
 
-  if (!r1.ok || !r3.ok) {
-    const [t1, t3] = await Promise.all([r1.text().catch(() => ""), r3.text().catch(() => "")]);
+  if (!r1.ok || !r3.ok || !rt.ok) {
+    const [t1, t3, tt] = await Promise.all([
+      r1.text().catch(() => ""),
+      r3.text().catch(() => ""),
+      rt.text().catch(() => ""),
+    ]);
     return Response.json(
       {
         error: "Sync failed",
         phase1: { status: r1.status, body: t1.slice(0, 300) },
         phase3: { status: r3.status, body: t3.slice(0, 300), since },
+        tagged: { status: rt.status, body: tt.slice(0, 300) },
       },
       { status: 502 }
     );
   }
 
-  const [d1, d3] = await Promise.all([r1.json(), r3.json()]);
+  const [d1, d3, dt] = await Promise.all([r1.json(), r3.json(), rt.json()]);
 
   return Response.json({
     list_entries: d1.list_entries ?? 0,
     deals: d3.deals ?? 0,
+    tagged: dt.tagged ?? 0,
     since,
   });
 }
