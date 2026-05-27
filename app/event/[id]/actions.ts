@@ -132,3 +132,17 @@ export async function removeEventMapping(eventId: string, attioCampana: string) 
   revalidateAll(eventId);
   return { success: true };
 }
+
+// 2026-05-27 (Jose): elegir si el evento fue Directo o de un Partner desde el modal.
+// value: 'DIRECTO' (directo), nombre del partner, o null (volver al auto-derivado).
+export async function saveEventPartnerOverride(eventId: string, value: string | null) {
+  const { error } = await supabase
+    .from("fm_event_metadata")
+    .upsert(
+      { luma_event_id: eventId, partner_override: value, updated_at: new Date().toISOString() },
+      { onConflict: "luma_event_id" }
+    );
+  if (error) throw new Error(error.message);
+  revalidateAll(eventId);
+  return { success: true };
+}

@@ -13,6 +13,7 @@ import {
 } from "@/components/EventFilters";
 import { DateFilter, filterByDateRange, type DateRange } from "@/components/DateFilter";
 import { formatCurrency } from "@/lib/format";
+import { effectivePartner } from "@/lib/partner";
 
 export function PartnersClient({
   events: initialEvents,
@@ -35,6 +36,11 @@ export function PartnersClient({
     }
     return map;
   }, [partners]);
+
+  const partnerNames = useMemo(
+    () => Array.from(new Set(partners.map((p) => p.partner).filter(Boolean))).sort(),
+    [partners]
+  );
 
   const inRange = useMemo(() => filterByDateRange(events, dateRange), [events, dateRange]);
 
@@ -160,7 +166,7 @@ export function PartnersClient({
             key={e.luma_event_id}
             event={e}
             mode="principal"
-            partner={partnerByEvent.get(e.luma_event_id)}
+            partner={effectivePartner(e, partnerByEvent.get(e.luma_event_id)) ?? undefined}
             onClick={setSelected}
           />
         ))}
@@ -174,7 +180,8 @@ export function PartnersClient({
       <EventModal
         event={selected}
         mode="principal"
-        partner={selected ? partnerByEvent.get(selected.luma_event_id) : undefined}
+        partner={selected ? (effectivePartner(selected, partnerByEvent.get(selected.luma_event_id)) ?? undefined) : undefined}
+        partnerOptions={partnerNames}
         isOpen={!!selected}
         onClose={() => setSelected(null)}
         onUpdate={handleUpdate}

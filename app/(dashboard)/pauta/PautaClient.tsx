@@ -13,6 +13,7 @@ import {
 } from "@/components/EventFilters";
 import { DateFilter, filterByDateRange, type DateRange } from "@/components/DateFilter";
 import { formatCurrency } from "@/lib/format";
+import { effectivePartner } from "@/lib/partner";
 
 export function PautaClient({
   events: initialEvents,
@@ -34,6 +35,11 @@ export function PautaClient({
     }
     return map;
   }, [partners]);
+
+  const partnerOptions = useMemo(
+    () => Array.from(new Set(partners.map((p) => p.partner).filter(Boolean))).sort(),
+    [partners]
+  );
 
   const inRange = useMemo(() => filterByDateRange(events, dateRange), [events, dateRange]);
 
@@ -133,7 +139,7 @@ export function PautaClient({
             key={e.luma_event_id}
             event={e}
             mode="pauta"
-            partner={partnerByEvent.get(e.luma_event_id)}
+            partner={effectivePartner(e, partnerByEvent.get(e.luma_event_id)) ?? undefined}
             onClick={setSelected}
           />
         ))}
@@ -147,7 +153,8 @@ export function PautaClient({
       <EventModal
         event={selected}
         mode="pauta"
-        partner={selected ? partnerByEvent.get(selected.luma_event_id) : undefined}
+        partner={selected ? (effectivePartner(selected, partnerByEvent.get(selected.luma_event_id)) ?? undefined) : undefined}
+        partnerOptions={partnerOptions}
         isOpen={!!selected}
         onClose={() => setSelected(null)}
         onUpdate={handleUpdate}

@@ -55,6 +55,7 @@ export type EventSummary = {
   lost_pauta: number;
   qm_show: number;
   qm_no_show: number;
+  partner_override: string | null;
 };
 
 export type SourceBreakdown = {

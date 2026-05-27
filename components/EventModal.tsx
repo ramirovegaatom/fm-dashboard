@@ -7,7 +7,8 @@ import { formatDate, formatCurrency } from "@/lib/format";
 import { Modal } from "./Modal";
 import { TerritoryEditor } from "./TerritoryEditor";
 import { MetricInfo } from "./MetricInfo";
-import { saveAdSpend, saveEventCost } from "@/app/event/[id]/actions";
+import { saveAdSpend, saveEventCost, saveEventPartnerOverride } from "@/app/event/[id]/actions";
+import { DIRECTO } from "@/lib/partner";
 
 export type ModalMode = "principal" | "pauta";
 
@@ -37,6 +38,7 @@ export function EventModal({
   event,
   mode,
   partner,
+  partnerOptions = [],
   isOpen,
   onClose,
   onUpdate,
@@ -44,6 +46,7 @@ export function EventModal({
   event: EventSummary | null;
   mode: ModalMode;
   partner?: string;
+  partnerOptions?: string[];
   isOpen: boolean;
   onClose: () => void;
   onUpdate?: (e: EventSummary) => void;
@@ -79,6 +82,19 @@ export function EventModal({
   const roi = cost > 0 && mrrWon > 0 ? (mrrWon / cost) * 100 : 0;
 
   const tasa = registros > 0 ? Math.round((asistentes / registros) * 100) : 0;
+
+  // 2026-05-27 (Jose): elegir Directo o Partner desde el modal.
+  const partnerValue = ev.partner_override ?? partner ?? DIRECTO;
+  const partnerChoices = Array.from(
+    new Set([...partnerOptions, partner, ev.partner_override].filter((x): x is string => !!x && x !== DIRECTO))
+  ).sort();
+
+  function handlePartnerChange(value: string) {
+    startTransition(async () => {
+      await saveEventPartnerOverride(ev.luma_event_id, value);
+      onUpdate?.({ ...ev, partner_override: value });
+    });
+  }
 
   function handleSave() {
     const num = parseFloat(costInput);
@@ -131,12 +147,29 @@ export function EventModal({
             <span style={{ fontWeight: 600 }}>{ev.pais}</span>
           </div>
         )}
-        {partner && (
-          <div>
-            <span className="text-muted">Partner: </span>
-            <span style={{ fontWeight: 600, color: "var(--fg-status-brand)" }}>{partner}</span>
-          </div>
-        )}
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <span className="text-muted">Partner: </span>
+          <select
+            value={partnerValue}
+            onChange={(e) => handlePartnerChange(e.target.value)}
+            disabled={isPending}
+            style={{
+              fontWeight: 600,
+              fontSize: 12,
+              padding: "2px 6px",
+              borderRadius: 6,
+              border: "1px solid var(--border-tertiary)",
+              background: "var(--bg-primary)",
+              color: partnerValue === DIRECTO ? "var(--fg-secondary)" : "var(--fg-status-brand)",
+              cursor: isPending ? "wait" : "pointer",
+            }}
+          >
+            <option value={DIRECTO}>Directo</option>
+            {partnerChoices.map((p) => (
+              <option key={p} value={p}>{p}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* Cost input */}
