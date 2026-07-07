@@ -133,21 +133,53 @@ export async function removeEventMapping(eventId: string, attioCampana: string) 
   return { success: true };
 }
 
-// 2026-07-06 (Jose): factura del evento — subir PDF (Storage, desde el cliente) + monto.
-// El monto es el costo total del evento (event_cost); se guardan juntos en un solo submit.
-export async function saveInvoiceUrl(eventId: string, invoiceUrl: string | null, amount?: number) {
-  const patch: Record<string, unknown> = {
-    luma_event_id: eventId,
-    invoice_url: invoiceUrl,
-    updated_at: new Date().toISOString(),
-  };
-  if (typeof amount === "number" && !Number.isNaN(amount) && amount >= 0) {
-    patch.event_cost = amount;
-  }
+// 2026-07-07 (Jose): facturas/gastos del evento como ítems (concepto + monto + PDF).
+// No hay un PDF con el costo total; son varias facturas de cosas del evento. El
+// event_cost del evento se recalcula como la SUMA de los montos de sus ítems.
+async function recomputeEventCost(eventId: string) {
+  const { data } = await supabase
+    .from("fm_event_invoices")
+    .select("monto")
+    .eq("luma_event_id", eventId);
+  const total = (data ?? []).reduce((acc, r) => acc + Number((r as { monto: number }).monto ?? 0), 0);
   const { error } = await supabase
     .from("fm_event_metadata")
-    .upsert(patch, { onConflict: "luma_event_id" });
+    .upsert(
+      { luma_event_id: eventId, event_cost: total, updated_at: new Date().toISOString() },
+      { onConflict: "luma_event_id" }
+    );
   if (error) throw new Error(error.message);
+  return total;
+}
+
+export async function addEventInvoice(
+  eventId: string,
+  concepto: string,
+  monto: number,
+  pdfUrl: string | null
+) {
+  const c = concepto.trim();
+  if (!c) throw new Error("Falta el concepto del gasto");
+  if (Number.isNaN(monto) || monto < 0) throw new Error("Monto inválido");
+  const { error } = await supabase.from("fm_event_invoices").insert({
+    luma_event_id: eventId,
+    concepto: c,
+    monto,
+    pdf_url: pdfUrl,
+    created_by: "dashboard",
+  });
+  if (error) throw new Error(error.message);
+  await recomputeEventCost(eventId);
+  revalidatePath("/");
+  revalidatePath("/partners");
+  revalidatePath(`/event/${eventId}`);
+  return { success: true };
+}
+
+export async function deleteEventInvoice(eventId: string, invoiceId: string) {
+  const { error } = await supabase.from("fm_event_invoices").delete().eq("id", invoiceId);
+  if (error) throw new Error(error.message);
+  await recomputeEventCost(eventId);
   revalidatePath("/");
   revalidatePath("/partners");
   revalidatePath(`/event/${eventId}`);

@@ -1,5 +1,5 @@
 import { Fragment } from "react";
-import { supabase, EventSummary, SourceBreakdown, RoleBreakdown, QmBySource, CompanyDrill, DealDrill, PartnerByEvent } from "@/lib/supabase";
+import { supabase, EventSummary, SourceBreakdown, RoleBreakdown, QmBySource, CompanyDrill, DealDrill, PartnerByEvent, EventInvoice } from "@/lib/supabase";
 import Link from "next/link";
 import { AdSpendInput } from "./AdSpendInput";
 import { EventCostInput } from "./EventCostInput";
@@ -7,7 +7,7 @@ import { RolesChart } from "./RolesChart";
 import { PipelineDrill } from "./PipelineDrill";
 import { PartnerEditor } from "./PartnerEditor";
 import { EventMappingEditor } from "./EventMappingEditor";
-import { InvoiceUpload } from "./InvoiceUpload";
+import { EventInvoices } from "./EventInvoices";
 import { TerritoryEditor } from "@/components/TerritoryEditor";
 import { MetricInfo } from "@/components/MetricInfo";
 
@@ -58,7 +58,7 @@ const SOURCE_COLORS: Record<string, string> = {
 export default async function EventDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const [{ data: events }, { data: sources }, { data: roles }, { data: qmSources }, { data: companiesDrill }, { data: dealsDrill }, { data: partnersData }, { data: mappingData }] = await Promise.all([
+  const [{ data: events }, { data: sources }, { data: roles }, { data: qmSources }, { data: companiesDrill }, { data: dealsDrill }, { data: partnersData }, { data: mappingData }, { data: invoicesRows }] = await Promise.all([
     supabase.from("fm_dashboard").select("*").eq("luma_event_id", id),
     supabase.from("fm_source_breakdown").select("*").eq("luma_event_id", id).order("registros", { ascending: false }),
     supabase.from("fm_roles_breakdown").select("*").eq("luma_event_id", id).order("total", { ascending: false }),
@@ -67,6 +67,7 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
     supabase.from("fm_event_deals_drill").select("*").eq("luma_event_id", id),
     supabase.from("fm_partners_by_event").select("*").eq("luma_event_id", id).order("registros", { ascending: false }),
     supabase.from("fm_event_mapping").select("attio_campana").eq("luma_event_id", id),
+    supabase.from("fm_event_invoices").select("*").eq("luma_event_id", id).order("created_at"),
   ]);
 
   const e = (events?.[0] ?? null) as EventSummary | null;
@@ -77,6 +78,7 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
   const dealsData = (dealsDrill ?? []) as DealDrill[];
   const partners = (partnersData ?? []) as PartnerByEvent[];
   const eventMappings = ((mappingData ?? []) as { attio_campana: string }[]).map((m) => m.attio_campana);
+  const invoices = (invoicesRows ?? []) as EventInvoice[];
 
   if (!e) {
     return (
@@ -122,7 +124,17 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
 
       {/* Inputs manuales */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-        <EventCostInput eventId={e.luma_event_id} currentValue={Number(e.event_cost)} />
+        {invoices.length > 0 ? (
+          <div className="card">
+            <div className="text-muted" style={{ fontSize: 11, marginBottom: 8 }}>Costo total del evento (USD)</div>
+            <div style={{ fontSize: 24, fontWeight: 700 }}>${Number(e.event_cost).toLocaleString()}</div>
+            <div className="text-muted" style={{ fontSize: 10, marginTop: 4 }}>
+              Suma de {invoices.length} factura{invoices.length === 1 ? "" : "s"} — ver abajo
+            </div>
+          </div>
+        ) : (
+          <EventCostInput eventId={e.luma_event_id} currentValue={Number(e.event_cost)} />
+        )}
         <AdSpendInput eventId={e.luma_event_id} currentValue={Number(e.ad_spend)} />
         <TerritoryEditor
           eventId={e.luma_event_id}
@@ -138,12 +150,8 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
         <EventMappingEditor eventId={e.luma_event_id} mappings={eventMappings} />
       </div>
 
-      {/* Factura del evento (post-evento) — Jose 2026-07-06 */}
-      <InvoiceUpload
-        eventId={e.luma_event_id}
-        currentUrl={e.invoice_url}
-        currentAmount={Number(e.event_cost)}
-      />
+      {/* Facturas / gastos del evento (post-evento) — Jose 2026-07-07 */}
+      <EventInvoices eventId={e.luma_event_id} invoices={invoices} />
 
       {/* Personas */}
       <div className="section-title">Personas</div>

@@ -409,12 +409,12 @@ export const METRIC_LINEAGE: Record<string, LineageEntry> = {
     note: "Incluye logística, catering, venue, organización. Distinto de ad_spend (que es solo inversión en pauta).",
   },
   invoice: {
-    label: "Factura del evento",
+    label: "Facturas / gastos del evento",
     flow: MANUAL_FLOW,
-    table: "fm_event_metadata",
-    column: "invoice_url (PDF en Supabase Storage) + event_cost (monto)",
-    update: "Manual (desplegable en la página de detalle: subir PDF + monto)",
-    note: "Jose 2026-07-06: subir el PDF de la factura y cargar el monto total al costado (no se extrae del PDF). El monto es el costo total del evento (event_cost). El PDF vive en el bucket público event-invoices.",
+    table: "fm_event_invoices",
+    column: "ítems (concepto + monto + pdf_url) — event_cost = SUM(monto)",
+    update: "Manual (desplegable en la página de detalle: agregar gasto = concepto + monto + PDF)",
+    note: "Jose 2026-07-07: no hay un PDF con el costo total, son varias facturas de cosas del evento. Cada ítem tiene concepto, monto y PDF (prueba, opcional) en el bucket público event-invoices. El costo total del evento (event_cost) se recalcula como la suma de los montos de los ítems.",
   },
   roi: {
     label: "ROI",

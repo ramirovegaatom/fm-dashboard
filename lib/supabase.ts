@@ -134,6 +134,15 @@ export type ThirdPartySummary = {
   mrr_won: number;
 };
 
+export type EventInvoice = {
+  id: string;
+  luma_event_id: string;
+  concepto: string;
+  monto: number;
+  pdf_url: string | null;
+  created_at: string;
+};
+
 export type WonByCloseDate = {
   attio_deal_id: string;
   deal_name: string | null;
