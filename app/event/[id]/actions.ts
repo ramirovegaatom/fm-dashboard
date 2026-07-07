@@ -133,6 +133,27 @@ export async function removeEventMapping(eventId: string, attioCampana: string) 
   return { success: true };
 }
 
+// 2026-07-06 (Jose): factura del evento — subir PDF (Storage, desde el cliente) + monto.
+// El monto es el costo total del evento (event_cost); se guardan juntos en un solo submit.
+export async function saveInvoiceUrl(eventId: string, invoiceUrl: string | null, amount?: number) {
+  const patch: Record<string, unknown> = {
+    luma_event_id: eventId,
+    invoice_url: invoiceUrl,
+    updated_at: new Date().toISOString(),
+  };
+  if (typeof amount === "number" && !Number.isNaN(amount) && amount >= 0) {
+    patch.event_cost = amount;
+  }
+  const { error } = await supabase
+    .from("fm_event_metadata")
+    .upsert(patch, { onConflict: "luma_event_id" });
+  if (error) throw new Error(error.message);
+  revalidatePath("/");
+  revalidatePath("/partners");
+  revalidatePath(`/event/${eventId}`);
+  return { success: true };
+}
+
 // 2026-05-27 (Jose): elegir si el evento fue Directo o de un Partner desde el modal.
 // value: 'DIRECTO' (directo), nombre del partner, o null (volver al auto-derivado).
 export async function saveEventPartnerOverride(eventId: string, value: string | null) {

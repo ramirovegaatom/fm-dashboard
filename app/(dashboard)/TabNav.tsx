@@ -7,6 +7,7 @@ const TABS = [
   { href: "/", label: "Principal" },
   { href: "/partners", label: "Partners" },
   { href: "/pauta", label: "Pauta" },
+  { href: "/third-party", label: "Third Party" },
   { href: "/mrr", label: "MRR cerrado" },
 ];
 

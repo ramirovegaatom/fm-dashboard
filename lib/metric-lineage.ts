@@ -75,9 +75,10 @@ export const METRIC_LINEAGE: Record<string, LineageEntry> = {
   tasa_asistencia: {
     label: "Tasa de asistencia",
     flow: DERIVED_FLOW,
-    column: "Math.round((asistentes / registros) * 100)",
+    column: "Math.round((asistentes / total_aprobados_icp) * 100)",
     update: "Recalculado en cada render",
     derivedFrom: ["asistentes", "registros"],
+    note: "Desde 2026-07-06 (Jose): denominador = registros aceptados (total_aprobados_icp), NO registros totales. La columna SQL tasa_conversion_pct divide por total_registros y subestima la tasa; el frontend la recalcula sobre aceptados en card, modal y detalle.",
   },
   icp_luma: {
     label: "ICP Luma (aprobados)",
@@ -173,6 +174,14 @@ export const METRIC_LINEAGE: Record<string, LineageEntry> = {
     column: "outbound_stage IN ('QM AGENDADA', 'PRE-QM - Oportunidad Marketing', 'QM SHOW', 'QM NO SHOW') · O proceso_fm = 'QM'",
     update: "Cron 4h",
     note: "Empresas marcadas como QM por FM (a nivel Company en Attio). QM NO SHOW se incluye desde 2026-05-27 (pedido Jose) — se agendó la QM aunque no asistieron, sigue siendo QM generada por marketing.",
+  },
+  qm_totales: {
+    label: "QM Totales",
+    flow: DERIVED_FLOW,
+    column: "qm_influenciada + qm_generada",
+    update: "Recalculado en cada render",
+    derivedFrom: ["qm_influenciada", "qm_generada"],
+    note: "Total de empresas QM del evento (Jose 2026-07-06): suma de influenciadas (tienen deal abierto) + generadas (sin deal). Cuadro-resumen para no sumar a mano. Ambas vienen de fm_attio_companies.qm_type. Fix 2026-07-06 (edge fn v27): antes outbound_stage/qm_type quedaban congelados desde el primer sync (enrichCompanies solo tocaba empresas nuevas) → Spark mostraba 0 QM cuando tenía 52. Ahora refreshCompanies re-enriquece todas las empresas y qm_type incluye QM SHOW/NO SHOW.",
   },
   qm_show: {
     label: "QM Show",
@@ -398,6 +407,14 @@ export const METRIC_LINEAGE: Record<string, LineageEntry> = {
     column: "event_cost (numeric)",
     update: "Manual (input en modal de evento)",
     note: "Incluye logística, catering, venue, organización. Distinto de ad_spend (que es solo inversión en pauta).",
+  },
+  invoice: {
+    label: "Factura del evento",
+    flow: MANUAL_FLOW,
+    table: "fm_event_metadata",
+    column: "invoice_url (PDF en Supabase Storage) + event_cost (monto)",
+    update: "Manual (desplegable en la página de detalle: subir PDF + monto)",
+    note: "Jose 2026-07-06: subir el PDF de la factura y cargar el monto total al costado (no se extrae del PDF). El monto es el costo total del evento (event_cost). El PDF vive en el bucket público event-invoices.",
   },
   roi: {
     label: "ROI",

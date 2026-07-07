@@ -7,6 +7,7 @@ import { RolesChart } from "./RolesChart";
 import { PipelineDrill } from "./PipelineDrill";
 import { PartnerEditor } from "./PartnerEditor";
 import { EventMappingEditor } from "./EventMappingEditor";
+import { InvoiceUpload } from "./InvoiceUpload";
 import { TerritoryEditor } from "@/components/TerritoryEditor";
 import { MetricInfo } from "@/components/MetricInfo";
 
@@ -88,6 +89,17 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
 
   const maxSrc = Math.max(...srcData.map((s) => s.registros), 1);
 
+  // 2026-07-06 (Jose): tasa de asistencia sobre aceptados (total_aprobados_icp),
+  // no sobre registros totales. Mismo criterio que EventModal. La columna SQL
+  // tasa_conversion_pct divide por total_registros → subestimaba la tasa.
+  const asistentesCount = e.total_asistentes || e.total_joined_virtual || 0;
+  const tasaAsistencia =
+    e.total_aprobados_icp > 0
+      ? Math.round((asistentesCount / e.total_aprobados_icp) * 100)
+      : 0;
+  // 2026-07-06 (Jose): QM Totales = influenciadas + generadas (para no sumar a mano).
+  const qmTotales = (e.qm_influenciada ?? 0) + (e.qm_generada ?? 0);
+
   return (
     <main className="dashboard-container">
       <Link href="/" className="link-back" style={{ display: "inline-block", marginBottom: 16 }}>&larr; Todos los eventos</Link>
@@ -126,6 +138,13 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
         <EventMappingEditor eventId={e.luma_event_id} mappings={eventMappings} />
       </div>
 
+      {/* Factura del evento (post-evento) — Jose 2026-07-06 */}
+      <InvoiceUpload
+        eventId={e.luma_event_id}
+        currentUrl={e.invoice_url}
+        currentAmount={Number(e.event_cost)}
+      />
+
       {/* Personas */}
       <div className="section-title">Personas</div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 28 }}>
@@ -141,9 +160,10 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
           metricKey="asistentes"
         />
         <Stat
-          value={`${e.tasa_conversion_pct ?? 0}%`}
+          value={`${tasaAsistencia}%`}
           label="Tasa asistencia"
-          color={Number(e.tasa_conversion_pct) > 30 ? "var(--fg-status-success)" : Number(e.tasa_conversion_pct) > 15 ? "var(--fg-status-warning)" : "var(--fg-status-error)"}
+          sub={`${asistentesCount}/${e.total_aprobados_icp} aceptados`}
+          color={tasaAsistencia > 30 ? "var(--fg-status-success)" : tasaAsistencia > 15 ? "var(--fg-status-warning)" : "var(--fg-status-error)"}
           metricKey="tasa_asistencia"
         />
         <Stat
@@ -170,6 +190,26 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
         </span>
         <MetricInfo metricKey="pct_matched" size={13} />
       </div>
+
+      {/* QM Totales — resumen rápido (Jose 2026-07-06) */}
+      <div
+        className="card"
+        style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 16 }}
+      >
+        <div style={{ fontSize: 30, fontWeight: 800, color: "var(--fg-status-warning)", lineHeight: 1 }}>
+          {qmTotales}
+        </div>
+        <div>
+          <div style={{ fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>
+            QM Totales
+            <MetricInfo metricKey="qm_totales" size={12} />
+          </div>
+          <div className="text-muted" style={{ fontSize: 12, marginTop: 2 }}>
+            {e.qm_influenciada} influenciadas + {e.qm_generada} generadas
+          </div>
+        </div>
+      </div>
+
       <PipelineDrill event={e} companies={companiesData} deals={dealsData} />
 
       {/* QMs by Source */}

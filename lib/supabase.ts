@@ -56,6 +56,7 @@ export type EventSummary = {
   qm_show: number;
   qm_no_show: number;
   partner_override: string | null;
+  invoice_url: string | null;
 };
 
 export type SourceBreakdown = {
@@ -105,6 +106,32 @@ export type CompanyDrill = {
   industria: string | null;
   pais: string | null;
   asistio: boolean;
+};
+
+export type ThirdPartySummary = {
+  campana_evento: string;
+  evento_nombre: string | null;
+  evento_fecha: string | null;
+  pais: string | null;
+  territorio: string | null;
+  event_cost: number;
+  invoice_url: string | null;
+  hidden: boolean;
+  personas_cargadas: number;
+  empresas_cargadas: number;
+  empresas_en_lista: number;
+  qm_por_fm: number;
+  qm_show: number;
+  qm_no_show: number;
+  qm_influenciada: number;
+  qm_generada: number;
+  descalificadas: number;
+  deals_total: number;
+  qm_agendada: number;
+  qm_asistida: number;
+  demo: number;
+  won: number;
+  mrr_won: number;
 };
 
 export type WonByCloseDate = {

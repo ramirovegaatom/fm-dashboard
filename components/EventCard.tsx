@@ -32,7 +32,13 @@ export function EventCard({
   const asistentes = isPauta ? event.asistentes_performance : (event.total_asistentes || event.total_joined_virtual || 0);
   const cost = isPauta ? Number(event.ad_spend) : Number(event.event_cost);
   const costLabel = isPauta ? "Inversión" : "Costo";
-  const tasa = isPauta ? event.pct_asistencia_performance : event.tasa_conversion_pct;
+  // 2026-07-06 (Jose): tasa principal sobre aceptados (registros = total_aprobados_icp),
+  // no sobre registros totales. Mismo criterio que EventModal / detalle del evento.
+  const tasa = isPauta
+    ? event.pct_asistencia_performance
+    : registros > 0
+    ? Math.round((asistentes / registros) * 100)
+    : 0;
   const qmAgend = isPauta ? event.qm_agendada_pauta : event.qm_agendada;
   const won = isPauta ? event.won_pauta : event.won;
   const mrrWon = isPauta ? Number(event.mrr_won_pauta) : Number(event.mrr_won);
