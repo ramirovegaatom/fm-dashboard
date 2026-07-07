@@ -53,35 +53,16 @@ export async function POST() {
 
   const [d1, d3, dt, dtp] = await Promise.all([r1.json(), r3.json(), rt.json(), rtp.json()]);
 
-  // v27 (2026-07-06): refrescar outbound_stage/qm_type de empresas EXISTENTES.
-  // Antes enrichCompanies solo tocaba empresas nuevas (company_name null) → cuando
-  // Jose movía una empresa a QM SHOW en Attio, el dashboard nunca lo reflejaba.
-  // Loop paginado (phase=2b) con guarda de tiempo para no exceder maxDuration;
-  // los updates son idempotentes, si queda a medias se completa en el próximo Sync.
-  const refreshStart = Date.now();
-  let companyOffset = 0;
-  let companiesRefreshed = 0;
-  let companiesRefreshComplete = false;
-  while (Date.now() - refreshStart < 80_000) {
-    const rr = await fetch(`${SYNC_URL}?phase=2b&offset=${companyOffset}&limit=200`);
-    if (!rr.ok) break;
-    const jr = await rr.json();
-    const rc = jr.refreshed_companies ?? {};
-    companiesRefreshed += rc.updated ?? 0;
-    if (rc.next_offset == null) {
-      companiesRefreshComplete = true;
-      break;
-    }
-    companyOffset = rc.next_offset;
-  }
-
+  // Nota: el refresh de outbound_stage/qm_type de empresas existentes (phase=2b) NO se
+  // corre acá — hacerlo sincrónicamente excedía el maxDuration de Vercel y daba 504.
+  // Lo cubre el cron `fm-refresh-companies` (pg_cron, cada 10 min). El botón solo corre
+  // las fases livianas: list entries (1), deals nuevos (3), tagueados (tagged) y personas
+  // third-party (tp).
   return Response.json({
     list_entries: d1.list_entries ?? 0,
     deals: d3.deals ?? 0,
     tagged: dt.tagged ?? 0,
     third_party_people: dtp.third_party_people ?? 0,
-    companies_refreshed: companiesRefreshed,
-    companies_refresh_complete: companiesRefreshComplete,
     since,
   });
 }
