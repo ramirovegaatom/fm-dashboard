@@ -39,13 +39,16 @@ export function EventCard({
     : registros > 0
     ? Math.round((asistentes / registros) * 100)
     : 0;
-  const qmAgend = isPauta ? event.qm_agendada_pauta : event.qm_agendada;
+  // 2026-07-08 (Jose): principal muestra QM FM (empresas, tag Attio) para coincidir con el
+  // detalle del evento. Pauta mantiene su funnel de deal (qm_agendada_pauta).
+  const qm = isPauta ? event.qm_agendada_pauta : event.qm_por_fm;
+  const qmLabel = isPauta ? "QM Agend." : "QM FM";
   const won = isPauta ? event.won_pauta : event.won;
   const mrrWon = isPauta ? Number(event.mrr_won_pauta) : Number(event.mrr_won);
 
   const keyRegistros = isPauta ? "registros_performance" : "total_aprobados_icp";
   const keyAsistentes = isPauta ? "asistentes_performance" : "asistentes";
-  const keyQmAgend = isPauta ? "qm_agendada_pauta" : "qm_agendada";
+  const keyQm = isPauta ? "qm_agendada_pauta" : "qm_por_fm";
   const keyWon = isPauta ? "won_pauta" : "won";
   const keyMrr = isPauta ? "mrr_won_pauta" : "mrr_won";
   const keyCost = isPauta ? "ad_spend" : "event_cost";
@@ -112,10 +115,10 @@ export function EventCard({
             </div>
           </div>
           <div>
-            <div className="text-warning" style={{ fontSize: 18, fontWeight: 700 }}>{qmAgend}</div>
+            <div className="text-warning" style={{ fontSize: 18, fontWeight: 700 }}>{qm}</div>
             <div className="stat-label" style={STAT_LABEL_STYLE}>
-              QM Agend.
-              <MetricInfo metricKey={keyQmAgend} size={11} />
+              {qmLabel}
+              <MetricInfo metricKey={keyQm} size={11} />
             </div>
           </div>
           <div>

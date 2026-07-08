@@ -68,14 +68,17 @@ export function EventModal({
     ? ev.asistentes_performance
     : ev.total_asistentes || ev.total_joined_virtual || 0;
 
-  const qmAgend = isPauta ? ev.qm_agendada_pauta : ev.qm_agendada;
+  // 2026-07-08 (Jose): principal muestra QM FM (empresas, tag Attio) para coincidir con el
+  // detalle. Pauta mantiene qm_agendada_pauta (funnel de deal de pauta).
+  const qm = isPauta ? ev.qm_agendada_pauta : ev.qm_por_fm;
+  const qmLabel = isPauta ? "QM Agend." : "QM FM";
   const qmAsist = isPauta ? ev.qm_asistida_pauta : ev.qm_asistida;
   const demo = isPauta ? ev.demo_pauta : ev.demo;
   const won = isPauta ? ev.won_pauta : ev.won;
   const mrrWon = isPauta ? Number(ev.mrr_won_pauta) : Number(ev.mrr_won);
 
   const costPerReg = registros > 0 && cost > 0 ? cost / registros : 0;
-  const costPerQmAg = qmAgend > 0 && cost > 0 ? cost / qmAgend : 0;
+  const costPerQmAg = qm > 0 && cost > 0 ? cost / qm : 0;
   const costPerQmAs = qmAsist > 0 && cost > 0 ? cost / qmAsist : 0;
   const costPerDemo = demo > 0 && cost > 0 ? cost / demo : 0;
   const costPerWon = won > 0 && cost > 0 ? cost / won : 0;
@@ -249,9 +252,9 @@ export function EventModal({
           metricKey={isPauta ? "asistentes_performance" : "asistentes"}
         />
         <CostStat
-          label="QM Agend."
-          value={String(qmAgend)}
-          metricKey={isPauta ? "qm_agendada_pauta" : "qm_agendada"}
+          label={qmLabel}
+          value={String(qm)}
+          metricKey={isPauta ? "qm_agendada_pauta" : "qm_por_fm"}
         />
         <CostStat
           label="QM Asist."
@@ -281,7 +284,7 @@ export function EventModal({
               metricKey="costo_por_registro"
             />
             <CostStat
-              label="/ QM Agend."
+              label={isPauta ? "/ QM Agend." : "/ QM FM"}
               value={costPerQmAg > 0 ? formatCurrency(costPerQmAg, { maximumFractionDigits: 2 }) : "—"}
               metricKey="costo_por_qm_agend"
             />

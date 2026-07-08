@@ -79,14 +79,14 @@ export function PrincipalClient({
           registros: acc.registros + e.total_aprobados_icp,
           totalRegs: acc.totalRegs + e.total_registros,
           asistentes: acc.asistentes + e.total_asistentes,
-          qmAgend: acc.qmAgend + e.qm_agendada,
+          qmFm: acc.qmFm + e.qm_por_fm,
           qmAsist: acc.qmAsist + e.qm_asistida,
           demo: acc.demo + e.demo,
           won: acc.won + e.won,
           mrr: acc.mrr + Number(e.mrr_won),
           cost: acc.cost + Number(e.event_cost),
         }),
-        { registros: 0, totalRegs: 0, asistentes: 0, qmAgend: 0, qmAsist: 0, demo: 0, won: 0, mrr: 0, cost: 0 }
+        { registros: 0, totalRegs: 0, asistentes: 0, qmFm: 0, qmAsist: 0, demo: 0, won: 0, mrr: 0, cost: 0 }
       ),
     [filtered]
   );
@@ -112,7 +112,7 @@ export function PrincipalClient({
       <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 12, marginBottom: 32 }}>
         <StatCard value={totals.registros} label="Registros" sub={`${totals.totalRegs} totales · ${descalif} descalif.`} metricKey="total_registros" />
         <StatCard value={totals.asistentes} label="Asistentes" sub={`${tasaAsis}% asist.`} metricKey="total_asistentes" />
-        <StatCard value={totals.qmAgend} label="QM Agend." color="var(--fg-status-warning)" metricKey="total_qm_agend" />
+        <StatCard value={totals.qmFm} label="QM FM" color="var(--fg-status-warning)" metricKey="qm_por_fm" />
         <StatCard value={totals.qmAsist} label="QM Asist." color="var(--fg-status-warning)" metricKey="total_qm_asist" />
         <StatCard value={totals.demo} label="Demo" metricKey="total_demo" />
         <StatCard value={totals.won} label="Won" color="var(--fg-status-info)" metricKey="total_won" />
