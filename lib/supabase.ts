@@ -136,6 +136,18 @@ export type ThirdPartySummary = {
   mrr_won: number;
 };
 
+// Detalle por empresa de un evento third-party (fm_third_party_companies_drill). Jose 2026-07-08.
+export type ThirdPartyCompany = {
+  campana_evento: string;
+  attio_company_id: string | null;
+  company_name: string | null;
+  outbound_stage: string | null;
+  industria: string | null;
+  pais: string | null;
+  qm_clasificacion: string | null;
+  tiene_won: boolean;
+};
+
 export type EventInvoice = {
   id: string;
   luma_event_id: string;
