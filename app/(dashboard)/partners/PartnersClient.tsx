@@ -96,7 +96,7 @@ export function PartnersClient({
           // 2026-05-27 (Jose): Registros = aceptados. totalRegs queda para el sub.
           registros: acc.registros + e.total_aprobados_icp,
           totalRegs: acc.totalRegs + e.total_registros,
-          asistentes: acc.asistentes + e.total_asistentes,
+          asistentes: acc.asistentes + (e.total_asistentes || e.total_joined_virtual || 0),
           qmFm: acc.qmFm + e.qm_por_fm,
           qmAsist: acc.qmAsist + e.qm_asistida,
           demo: acc.demo + e.demo,
