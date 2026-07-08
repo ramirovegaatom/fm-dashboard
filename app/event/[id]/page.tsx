@@ -99,7 +99,8 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
     e.total_aprobados_icp > 0
       ? Math.round((asistentesCount / e.total_aprobados_icp) * 100)
       : 0;
-  // 2026-07-06 (Jose): QM Totales = influenciadas + generadas (para no sumar a mano).
+  // 2026-07-06 (Jose): QM Totales = directas + influenciadas (para no sumar a mano).
+  // qm_generada = QM Directa (origen FM). Ver metric-lineage.ts.
   const qmTotales = (e.qm_influenciada ?? 0) + (e.qm_generada ?? 0);
 
   return (
@@ -213,7 +214,7 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
             <MetricInfo metricKey="qm_totales" size={12} />
           </div>
           <div className="text-muted" style={{ fontSize: 12, marginTop: 2 }}>
-            {e.qm_influenciada} influenciadas + {e.qm_generada} generadas
+            {e.qm_generada} directas + {e.qm_influenciada} influenciadas
           </div>
         </div>
       </div>

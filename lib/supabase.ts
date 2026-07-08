@@ -106,6 +106,8 @@ export type CompanyDrill = {
   industria: string | null;
   pais: string | null;
   asistio: boolean;
+  // clasificacion QM por origen del deal (directa | influenciada | null). Jose 2026-07-08.
+  qm_clasificacion: string | null;
 };
 
 export type ThirdPartySummary = {
