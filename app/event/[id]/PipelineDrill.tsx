@@ -80,30 +80,41 @@ function filterCompanies(companies: CompanyDrill[], m: Metric): CompanyDrill[] {
           c.proceso_fm_status ?? ""
         )
       );
-    case "qm_fm":
-      // Jose 2026-07-08: PRE-QM ya NO es QM. QM real = QM AGENDADA/SHOW/NO SHOW (o proceso 'QM').
-      return companies.filter(
-        (c) =>
-          c.proceso_fm_status === "QM" ||
-          ["QM AGENDADA", "QM SHOW", "QM NO SHOW"].includes(
-            c.outbound_stage ?? ""
-          )
-      );
-    case "qm_influenciada":
-      // clasificacion por ORIGEN del deal (columna qm_clasificacion de la vista), no qm_type.
-      return companies.filter((c) => c.qm_clasificacion === "influenciada");
-    case "qm_generada":
-      return companies.filter((c) => c.qm_clasificacion === "directa");
     case "descalificadas":
       return companies.filter((c) => c.proceso_fm_status === "Descalificada no ICP");
+    default:
+      // Las metricas de QM NO se filtran aca: se anclan en el tag de Attio (filterQmCompanies).
+      return [];
+  }
+}
+
+// Jose 2026-07-08: QM ancladas al tag Campaña/Evento del objeto Company en Attio
+// (vista fm_event_qm_companies_drill, ya filtrada a QM AGENDADA/SHOW/NO SHOW), NO a los
+// registrantes de Luma. Coincide con lo que Jose filtra en Attio.
+function filterQmCompanies(companies: CompanyDrill[], m: Metric): CompanyDrill[] {
+  switch (m) {
+    case "qm_fm":
+      return companies; // la vista ya trae solo QM AGENDADA/SHOW/NO SHOW
     case "qm_show":
       return companies.filter((c) => c.outbound_stage === "QM SHOW");
     case "qm_no_show":
       return companies.filter((c) => c.outbound_stage === "QM NO SHOW");
+    case "qm_generada":
+      return companies.filter((c) => c.qm_clasificacion === "directa");
+    case "qm_influenciada":
+      return companies.filter((c) => c.qm_clasificacion === "influenciada");
     default:
       return [];
   }
 }
+
+const QM_COMPANY_METRICS = new Set<Metric>([
+  "qm_fm",
+  "qm_show",
+  "qm_no_show",
+  "qm_generada",
+  "qm_influenciada",
+]);
 
 function filterDeals(deals: DealDrill[], m: Metric): DealDrill[] {
   // 2026-05-06: switch a flags de traza (toco_*) — un deal que pasó por QM
@@ -177,16 +188,24 @@ function PipelineStep({
 export function PipelineDrill({
   event,
   companies,
+  qmCompanies,
   deals,
 }: {
   event: EventSummary;
   companies: CompanyDrill[];
+  qmCompanies: CompanyDrill[];
   deals: DealDrill[];
 }) {
   const [open, setOpen] = useState<Metric | null>(null);
 
   const isDealMetric = open ? DEAL_METRICS.has(open) : false;
-  const listCompanies = open && !isDealMetric ? filterCompanies(companies, open) : [];
+  const isQmMetric = open ? QM_COMPANY_METRICS.has(open) : false;
+  const listCompanies =
+    open && !isDealMetric
+      ? isQmMetric
+        ? filterQmCompanies(qmCompanies, open)
+        : filterCompanies(companies, open)
+      : [];
   const listDeals = open && isDealMetric ? filterDeals(deals, open) : [];
 
   return (

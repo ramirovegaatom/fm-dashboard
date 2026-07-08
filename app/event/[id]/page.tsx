@@ -58,12 +58,13 @@ const SOURCE_COLORS: Record<string, string> = {
 export default async function EventDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const [{ data: events }, { data: sources }, { data: roles }, { data: qmSources }, { data: companiesDrill }, { data: dealsDrill }, { data: partnersData }, { data: mappingData }, { data: invoicesRows }] = await Promise.all([
+  const [{ data: events }, { data: sources }, { data: roles }, { data: qmSources }, { data: companiesDrill }, { data: qmDrill }, { data: dealsDrill }, { data: partnersData }, { data: mappingData }, { data: invoicesRows }] = await Promise.all([
     supabase.from("fm_dashboard").select("*").eq("luma_event_id", id),
     supabase.from("fm_source_breakdown").select("*").eq("luma_event_id", id).order("registros", { ascending: false }),
     supabase.from("fm_roles_breakdown").select("*").eq("luma_event_id", id).order("total", { ascending: false }),
     supabase.from("fm_qm_by_source").select("*").eq("luma_event_id", id).order("empresas_qm", { ascending: false }),
     supabase.from("fm_event_companies_drill").select("*").eq("luma_event_id", id),
+    supabase.from("fm_event_qm_companies_drill").select("*").eq("luma_event_id", id),
     supabase.from("fm_event_deals_drill").select("*").eq("luma_event_id", id),
     supabase.from("fm_partners_by_event").select("*").eq("luma_event_id", id).order("registros", { ascending: false }),
     supabase.from("fm_event_mapping").select("attio_campana").eq("luma_event_id", id),
@@ -75,6 +76,7 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
   const roleData = (roles ?? []) as RoleBreakdown[];
   const qmData = (qmSources ?? []).filter((q: QmBySource) => q.empresas_qm > 0 || q.empresas_gestion > 0) as QmBySource[];
   const companiesData = (companiesDrill ?? []) as CompanyDrill[];
+  const qmCompaniesData = (qmDrill ?? []) as CompanyDrill[];
   const dealsData = (dealsDrill ?? []) as DealDrill[];
   const partners = (partnersData ?? []) as PartnerByEvent[];
   const eventMappings = ((mappingData ?? []) as { attio_campana: string }[]).map((m) => m.attio_campana);
@@ -219,7 +221,7 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
         </div>
       </div>
 
-      <PipelineDrill event={e} companies={companiesData} deals={dealsData} />
+      <PipelineDrill event={e} companies={companiesData} qmCompanies={qmCompaniesData} deals={dealsData} />
 
       {/* QMs by Source */}
       {qmData.length > 0 && (
