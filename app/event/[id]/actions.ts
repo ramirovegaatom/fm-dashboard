@@ -196,6 +196,20 @@ export async function deleteEventInvoice(eventId: string, invoiceId: string) {
 
 // 2026-05-27 (Jose): elegir si el evento fue Directo o de un Partner desde el modal.
 // value: 'DIRECTO' (directo), nombre del partner, o null (volver al auto-derivado).
+// 2026-07-10 (Jose): archivar/desarchivar un evento (prueba/interno). Archivado = no cuenta
+// en métricas ni listas (se filtra en fm_dashboard/frontend y en fm_won_by_close_date).
+export async function setEventHidden(eventId: string, hidden: boolean) {
+  const { error } = await supabase
+    .from("fm_event_metadata")
+    .upsert(
+      { luma_event_id: eventId, hidden, updated_at: new Date().toISOString() },
+      { onConflict: "luma_event_id" }
+    );
+  if (error) throw new Error(error.message);
+  revalidateAll(eventId);
+  return { success: true };
+}
+
 export async function saveEventPartnerOverride(eventId: string, value: string | null) {
   const { error } = await supabase
     .from("fm_event_metadata")

@@ -44,7 +44,8 @@ export function PartnersClient({
     [partners]
   );
 
-  const inRange = useMemo(() => filterByDateRange(events, dateRange), [events, dateRange]);
+  // Los eventos archivados no cuentan en ninguna vista. Jose 2026-07-10.
+  const inRange = useMemo(() => filterByDateRange(events.filter((e) => !e.hidden), dateRange), [events, dateRange]);
 
   const partnerEvents = useMemo(
     () => inRange.filter((e) => partnerByEvent.has(e.luma_event_id)),

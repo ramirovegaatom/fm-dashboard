@@ -7,7 +7,7 @@ import { formatDate, formatCurrency } from "@/lib/format";
 import { Modal } from "./Modal";
 import { TerritoryEditor } from "./TerritoryEditor";
 import { MetricInfo } from "./MetricInfo";
-import { saveAdSpend, saveEventCost, saveEventPartnerOverride } from "@/app/event/[id]/actions";
+import { saveAdSpend, saveEventCost, saveEventPartnerOverride, setEventHidden } from "@/app/event/[id]/actions";
 import { DIRECTO } from "@/lib/partner";
 
 export type ModalMode = "principal" | "pauta";
@@ -96,6 +96,16 @@ export function EventModal({
     startTransition(async () => {
       await saveEventPartnerOverride(ev.luma_event_id, value);
       onUpdate?.({ ...ev, partner_override: value });
+    });
+  }
+
+  function handleArchive() {
+    const next = !ev.hidden;
+    if (next && !confirm("¿Archivar este evento? No va a contar en ninguna métrica del dashboard (podés desarchivarlo después).")) return;
+    startTransition(async () => {
+      await setEventHidden(ev.luma_event_id, next);
+      onUpdate?.({ ...ev, hidden: next });
+      onClose();
     });
   }
 
@@ -346,7 +356,15 @@ export function EventModal({
       )}
 
       {/* Footer */}
-      <div style={{ display: "flex", justifyContent: "flex-end", borderTop: "1px solid var(--border-tertiary)", paddingTop: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid var(--border-tertiary)", paddingTop: 16 }}>
+        <button
+          onClick={handleArchive}
+          disabled={isPending}
+          style={{ all: "unset", cursor: isPending ? "wait" : "pointer", fontSize: 13, color: ev.hidden ? "var(--fg-status-success)" : "var(--fg-status-error)" }}
+          title={ev.hidden ? "Reincluir en las métricas" : "Archivar: no cuenta en ninguna métrica"}
+        >
+          {ev.hidden ? "↩ Desarchivar evento" : "🗄 Archivar evento"}
+        </button>
         <Link
           href={`/event/${ev.luma_event_id}`}
           className="link-back"

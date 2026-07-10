@@ -28,7 +28,10 @@ export function PrincipalClient({
   const [tipo, setTipo] = useState<TipoFilter>("todos");
   const [territorio, setTerritorio] = useState<TerritorioFilter>("todos");
   const [dateRange, setDateRange] = useState<DateRange>({});
+  const [showArchived, setShowArchived] = useState(false);
   const [selected, setSelected] = useState<EventSummary | null>(null);
+
+  const archivedCount = useMemo(() => events.filter((e) => e.hidden).length, [events]);
 
   const partnerByEvent = useMemo(() => {
     const map = new Map<string, string>();
@@ -43,7 +46,12 @@ export function PrincipalClient({
     [partners]
   );
 
-  const inRange = useMemo(() => filterByDateRange(events, dateRange), [events, dateRange]);
+  // Archivados: excluidos por defecto de métricas y lista. Toggle para gestionarlos.
+  const byArchive = useMemo(
+    () => events.filter((e) => (showArchived ? e.hidden : !e.hidden)),
+    [events, showArchived]
+  );
+  const inRange = useMemo(() => filterByDateRange(byArchive, dateRange), [byArchive, dateRange]);
 
   const tipoCounts = useMemo(() => {
     const c: Record<TipoFilter, number> = { todos: inRange.length, Presencial: 0, Virtual: 0, "Third Party": 0 };
@@ -100,7 +108,30 @@ export function PrincipalClient({
         <TipoEventoPills value={tipo} onChange={setTipo} counts={tipoCounts} />
         <TerritorioPills value={territorio} onChange={setTerritorio} counts={territorioCounts} />
         <DateFilter value={dateRange} onChange={setDateRange} />
+        {(archivedCount > 0 || showArchived) && (
+          <button
+            onClick={() => setShowArchived((v) => !v)}
+            style={{
+              padding: "4px 12px",
+              fontSize: 11,
+              fontWeight: 600,
+              borderRadius: 8,
+              border: "1px solid var(--border-tertiary)",
+              cursor: "pointer",
+              background: showArchived ? "var(--fg-status-warning)" : "var(--bg-primary)",
+              color: showArchived ? "var(--bg-primary)" : "var(--fg-secondary)",
+            }}
+            title="Eventos archivados: no cuentan en las métricas"
+          >
+            {showArchived ? "← Volver a activos" : `Ver archivados (${archivedCount})`}
+          </button>
+        )}
       </div>
+      {showArchived && (
+        <div className="text-muted" style={{ fontSize: 12, marginBottom: 16 }}>
+          Mostrando <strong>eventos archivados</strong> (no cuentan en ninguna métrica). Abrí uno y usá “Desarchivar” para reincluirlo.
+        </div>
+      )}
 
       {/* Stats */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 12, marginBottom: 32 }}>

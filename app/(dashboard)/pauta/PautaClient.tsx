@@ -43,7 +43,8 @@ export function PautaClient({
     [partners]
   );
 
-  const inRange = useMemo(() => filterByDateRange(events, dateRange), [events, dateRange]);
+  // Los eventos archivados no cuentan en ninguna vista. Jose 2026-07-10.
+  const inRange = useMemo(() => filterByDateRange(events.filter((e) => !e.hidden), dateRange), [events, dateRange]);
 
   const tipoCounts = useMemo(() => {
     const c: Record<TipoFilter, number> = { todos: inRange.length, Presencial: 0, Virtual: 0, "Third Party": 0 };

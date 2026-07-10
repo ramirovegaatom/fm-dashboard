@@ -43,6 +43,7 @@ export type EventSummary = {
   event_cost: number; // NETO: bruto - ingresos (lo calcula fm_dashboard)
   event_cost_bruto: number; // suma de gastos
   event_income: number; // suma de ingresos (MDF, aportes de partner)
+  hidden: boolean; // evento archivado: no cuenta en métricas
   pais: string | null;
   territorio: "Norte" | "Sur" | "Brasil" | null;
   qm_agendada: number;

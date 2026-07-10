@@ -75,6 +75,11 @@ export function EventCard({
             <span className={`badge ${event.evento_tipo === "Presencial" ? "badge-presencial" : "badge-virtual"}`}>
               {event.evento_tipo}
             </span>
+            {event.hidden && (
+              <span className="badge" style={{ background: "var(--bg-secondary)", color: "var(--fg-quaternary)" }}>
+                Archivado
+              </span>
+            )}
             {event.territorio && (
               <span className="badge" style={{ background: "var(--bg-secondary)", color: "var(--fg-secondary)" }}>
                 {event.territorio}
