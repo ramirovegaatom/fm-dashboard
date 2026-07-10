@@ -1,12 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { WonByCloseDate } from "@/lib/supabase";
 import { DateFilter, DateRange } from "@/components/DateFilter";
 import { TerritorioPills, matchTerritorio, countByTerritorio, type TerritorioFilter } from "@/components/EventFilters";
 import { StatCard } from "@/components/StatCard";
 import { formatCurrency } from "@/lib/format";
 import { attioDealUrl } from "@/lib/attio";
+import { PAISES_POR_TERRITORIO, defaultTerritorio } from "@/lib/territories";
+import { saveDealTerritory } from "./actions";
+
+type Override = { pais: string | null; territorio: string | null };
 
 // 2026-05-27 (Jose H): negocios cerrados (Won) por fecha de cierre.
 // Jose: "ahora nos miden por MRR, no por QM. Un deal que generó QM en enero pero
@@ -16,16 +20,26 @@ export function MrrClient({ deals }: { deals: WonByCloseDate[] }) {
   const [dateRange, setDateRange] = useState<DateRange>({});
   const [origen, setOrigen] = useState<string>("todos");
   const [territorio, setTerritorio] = useState<TerritorioFilter>("todos");
+  // Overrides de país/territorio asignados a mano (optimista, así el filtro reacciona ya).
+  const [overrides, setOverrides] = useState<Record<string, Override>>({});
+
+  // Deals con el override aplicado encima (país + territorio efectivo).
+  const effectiveDeals = useMemo(() => {
+    return deals.map((d) => {
+      const ovr = overrides[d.attio_deal_id];
+      return ovr ? { ...d, pais: ovr.pais, territorio: ovr.territorio } : d;
+    });
+  }, [deals, overrides]);
 
   const origenes = useMemo(() => {
     const set = new Set<string>();
-    deals.forEach((d) => { if (d.origen_negocio) set.add(d.origen_negocio); });
+    effectiveDeals.forEach((d) => { if (d.origen_negocio) set.add(d.origen_negocio); });
     return ["todos", ...[...set].sort()];
-  }, [deals]);
+  }, [effectiveDeals]);
 
   // Deals filtrados solo por fecha (base para los conteos de territorio).
   const dateFiltered = useMemo(() => {
-    return deals.filter((d) => {
+    return effectiveDeals.filter((d) => {
       const cd = new Date(d.close_date + "T12:00:00");
       if (dateRange.from && cd < dateRange.from) return false;
       if (dateRange.to && cd > dateRange.to) return false;
@@ -42,6 +56,15 @@ export function MrrClient({ deals }: { deals: WonByCloseDate[] }) {
       return true;
     });
   }, [dateFiltered, origen, territorio]);
+
+  function handleSaveTerritory(dealId: string, pais: string | null) {
+    // Optimista: actualizamos el override local para que filtro/conteos reaccionen ya.
+    setOverrides((prev) => ({
+      ...prev,
+      [dealId]: { pais, territorio: pais ? defaultTerritorio(pais) : null },
+    }));
+    void saveDealTerritory(dealId, pais);
+  }
 
   const totals = useMemo(() => {
     const mrr = filtered.reduce((acc, d) => acc + Number(d.value_amount ?? 0), 0);
@@ -98,6 +121,7 @@ export function MrrClient({ deals }: { deals: WonByCloseDate[] }) {
                 <th style={thStyle}>Negocio</th>
                 <th style={thStyle}>Campaña / Evento</th>
                 <th style={thStyle}>Tipo</th>
+                <th style={thStyle}>País / Territorio</th>
                 <th style={{ ...thStyle, textAlign: "right" }}>Valor</th>
                 <th style={{ ...thStyle, textAlign: "right" }}>Cierre</th>
               </tr>
@@ -125,6 +149,13 @@ export function MrrClient({ deals }: { deals: WonByCloseDate[] }) {
                     )}
                   </td>
                   <td style={{ ...tdStyle, color: "var(--fg-secondary)" }}>{d.origen_negocio ?? "—"}</td>
+                  <td style={tdStyle}>
+                    <DealTerritoryCell
+                      pais={d.pais}
+                      territorio={d.territorio}
+                      onSave={(pais) => handleSaveTerritory(d.attio_deal_id, pais)}
+                    />
+                  </td>
                   <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600, color: Number(d.value_amount) < 0 ? "var(--fg-status-error)" : undefined }}>
                     {formatCurrency(Number(d.value_amount ?? 0))}
                   </td>
@@ -136,6 +167,59 @@ export function MrrClient({ deals }: { deals: WonByCloseDate[] }) {
             </tbody>
           </table>
         </div>
+      )}
+    </div>
+  );
+}
+
+// Desplegable de país por deal + badge del territorio efectivo. Jose 2026-07-10.
+function DealTerritoryCell({
+  pais,
+  territorio,
+  onSave,
+}: {
+  pais: string | null;
+  territorio: string | null;
+  onSave: (pais: string | null) => void;
+}) {
+  const [isPending, startTransition] = useTransition();
+  // territorio derivado del evento (sin override manual de país): lo marcamos como "auto".
+  const auto = !pais && !!territorio;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, opacity: isPending ? 0.5 : 1 }}>
+      <select
+        value={pais ?? ""}
+        onChange={(e) => startTransition(() => onSave(e.target.value || null))}
+        disabled={isPending}
+        style={{
+          padding: "5px 8px",
+          fontSize: 12,
+          borderRadius: 8,
+          border: "1px solid var(--border-tertiary)",
+          background: "var(--bg-secondary)",
+          color: pais ? "var(--fg-primary)" : "var(--fg-quaternary)",
+          maxWidth: 150,
+        }}
+      >
+        <option value="">— sin asignar —</option>
+        {PAISES_POR_TERRITORIO.map((grp) => (
+          <optgroup key={grp.territorio} label={grp.territorio}>
+            {grp.paises.map((p) => (
+              <option key={p} value={p}>{p}</option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+      {territorio ? (
+        <span
+          className="badge"
+          style={{ background: "var(--bg-secondary)", color: "var(--fg-secondary)", fontSize: 10, whiteSpace: "nowrap" }}
+          title={auto ? "Territorio derivado del evento (asigná un país para fijarlo)" : "Territorio asignado a mano"}
+        >
+          {territorio}{auto ? " · auto" : ""}
+        </span>
+      ) : (
+        <span className="text-muted" style={{ fontSize: 10, whiteSpace: "nowrap" }}>sin territorio</span>
       )}
     </div>
   );

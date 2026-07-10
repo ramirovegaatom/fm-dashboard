@@ -187,6 +187,9 @@ export type WonByCloseDate = {
   value_amount: number | null;
   close_date: string;
   territorio: string | null;
+  // pais: override manual por deal (fm_deal_territory_overrides). Jose 2026-07-10.
+  // Si está seteado, su territorio le gana al derivado del evento.
+  pais: string | null;
 };
 
 export type DealDrill = {
