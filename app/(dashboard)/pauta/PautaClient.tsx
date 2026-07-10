@@ -8,6 +8,8 @@ import { EventModal } from "@/components/EventModal";
 import {
   TipoEventoPills,
   TerritorioPills,
+  matchTerritorio,
+  countByTerritorio,
   type TipoFilter,
   type TerritorioFilter,
 } from "@/components/EventFilters";
@@ -53,20 +55,12 @@ export function PautaClient({
     return c;
   }, [inRange]);
 
-  const territorioCounts = useMemo(() => {
-    const c: Record<TerritorioFilter, number> = { todos: inRange.length, Norte: 0, Sur: 0, Brasil: 0 };
-    for (const e of inRange) {
-      if (e.territorio === "Norte") c.Norte++;
-      else if (e.territorio === "Sur") c.Sur++;
-      else if (e.territorio === "Brasil") c.Brasil++;
-    }
-    return c;
-  }, [inRange]);
+  const territorioCounts = useMemo(() => countByTerritorio(inRange, (e) => e.territorio), [inRange]);
 
   const filtered = useMemo(() => {
     return inRange.filter((e) => {
       if (tipo !== "todos" && e.evento_tipo !== tipo) return false;
-      if (territorio !== "todos" && e.territorio !== territorio) return false;
+      if (!matchTerritorio(e.territorio, territorio)) return false;
       return true;
     });
   }, [inRange, tipo, territorio]);

@@ -3,7 +3,28 @@
 import { TERRITORIOS, type Territorio } from "@/lib/territories";
 
 export type TipoFilter = "todos" | "Presencial" | "Virtual" | "Third Party";
-export type TerritorioFilter = "todos" | Territorio;
+// "Latam" = todos los países menos Brasil (incluye territorios sin taguear). Jose 2026-07-10.
+export type TerritorioFilter = "todos" | "Latam" | Territorio;
+
+// Un territorio matchea el filtro. Latam = cualquier cosa que no sea Brasil.
+export function matchTerritorio(t: string | null, filter: TerritorioFilter): boolean {
+  if (filter === "todos") return true;
+  if (filter === "Latam") return t !== "Brasil";
+  return t === filter;
+}
+
+// Conteos por filtro de territorio (sirve para eventos o deals).
+export function countByTerritorio<T>(items: T[], getT: (x: T) => string | null): Record<TerritorioFilter, number> {
+  const c: Record<TerritorioFilter, number> = { todos: items.length, Latam: 0, Norte: 0, Sur: 0, Brasil: 0 };
+  for (const it of items) {
+    const t = getT(it);
+    if (t !== "Brasil") c.Latam++;
+    if (t === "Norte") c.Norte++;
+    else if (t === "Sur") c.Sur++;
+    else if (t === "Brasil") c.Brasil++;
+  }
+  return c;
+}
 
 const PILL_BASE: React.CSSProperties = {
   padding: "4px 12px",
@@ -59,6 +80,7 @@ export function TerritorioPills({
 }) {
   const opts: { label: string; value: TerritorioFilter }[] = [
     { label: "Todos territorios", value: "todos" },
+    { label: "Latam", value: "Latam" },
     ...TERRITORIOS.map((t) => ({ label: t, value: t as TerritorioFilter })),
   ];
   return (

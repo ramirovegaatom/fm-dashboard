@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { WonByCloseDate } from "@/lib/supabase";
 import { DateFilter, DateRange } from "@/components/DateFilter";
+import { TerritorioPills, matchTerritorio, countByTerritorio, type TerritorioFilter } from "@/components/EventFilters";
 import { StatCard } from "@/components/StatCard";
 import { formatCurrency } from "@/lib/format";
 import { attioDealUrl } from "@/lib/attio";
@@ -14,6 +15,7 @@ export function MrrClient({ deals }: { deals: WonByCloseDate[] }) {
   // Default: Q en curso del año actual.
   const [dateRange, setDateRange] = useState<DateRange>({});
   const [origen, setOrigen] = useState<string>("todos");
+  const [territorio, setTerritorio] = useState<TerritorioFilter>("todos");
 
   const origenes = useMemo(() => {
     const set = new Set<string>();
@@ -21,15 +23,25 @@ export function MrrClient({ deals }: { deals: WonByCloseDate[] }) {
     return ["todos", ...[...set].sort()];
   }, [deals]);
 
-  const filtered = useMemo(() => {
+  // Deals filtrados solo por fecha (base para los conteos de territorio).
+  const dateFiltered = useMemo(() => {
     return deals.filter((d) => {
       const cd = new Date(d.close_date + "T12:00:00");
       if (dateRange.from && cd < dateRange.from) return false;
       if (dateRange.to && cd > dateRange.to) return false;
-      if (origen !== "todos" && d.origen_negocio !== origen) return false;
       return true;
     });
-  }, [deals, dateRange, origen]);
+  }, [deals, dateRange]);
+
+  const territorioCounts = useMemo(() => countByTerritorio(dateFiltered, (d) => d.territorio), [dateFiltered]);
+
+  const filtered = useMemo(() => {
+    return dateFiltered.filter((d) => {
+      if (origen !== "todos" && d.origen_negocio !== origen) return false;
+      if (!matchTerritorio(d.territorio, territorio)) return false;
+      return true;
+    });
+  }, [dateFiltered, origen, territorio]);
 
   const totals = useMemo(() => {
     const mrr = filtered.reduce((acc, d) => acc + Number(d.value_amount ?? 0), 0);
@@ -59,6 +71,7 @@ export function MrrClient({ deals }: { deals: WonByCloseDate[] }) {
             <option key={o} value={o}>{o === "todos" ? "Todos los tipos de deal" : o}</option>
           ))}
         </select>
+        <TerritorioPills value={territorio} onChange={setTerritorio} counts={territorioCounts} />
         <span className="text-muted" style={{ fontSize: 12 }}>
           Solo Won de <strong>Field Marketing</strong> (con campaña/evento) · filtra por <strong>fecha de cierre</strong>
         </span>

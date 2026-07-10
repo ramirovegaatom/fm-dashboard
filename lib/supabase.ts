@@ -165,6 +165,7 @@ export type WonByCloseDate = {
   origen_negocio: string | null;
   value_amount: number | null;
   close_date: string;
+  territorio: string | null;
 };
 
 export type DealDrill = {

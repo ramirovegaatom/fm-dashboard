@@ -8,6 +8,8 @@ import { EventModal } from "@/components/EventModal";
 import {
   TipoEventoPills,
   TerritorioPills,
+  matchTerritorio,
+  countByTerritorio,
   type TipoFilter,
   type TerritorioFilter,
 } from "@/components/EventFilters";
@@ -70,20 +72,12 @@ export function PartnersClient({
     return c;
   }, [partnerEvents]);
 
-  const territorioCounts = useMemo(() => {
-    const c: Record<TerritorioFilter, number> = { todos: partnerEvents.length, Norte: 0, Sur: 0, Brasil: 0 };
-    for (const e of partnerEvents) {
-      if (e.territorio === "Norte") c.Norte++;
-      else if (e.territorio === "Sur") c.Sur++;
-      else if (e.territorio === "Brasil") c.Brasil++;
-    }
-    return c;
-  }, [partnerEvents]);
+  const territorioCounts = useMemo(() => countByTerritorio(partnerEvents, (e) => e.territorio), [partnerEvents]);
 
   const filtered = useMemo(() => {
     return partnerEvents.filter((e) => {
       if (tipo !== "todos" && e.evento_tipo !== tipo) return false;
-      if (territorio !== "todos" && e.territorio !== territorio) return false;
+      if (!matchTerritorio(e.territorio, territorio)) return false;
       if (partnerFilter !== "todos" && partnerByEvent.get(e.luma_event_id) !== partnerFilter) return false;
       return true;
     });
