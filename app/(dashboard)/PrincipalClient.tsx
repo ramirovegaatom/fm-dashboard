@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { EventSummary, PartnerByEvent } from "@/lib/supabase";
 import { StatCard } from "@/components/StatCard";
 import { EventCard } from "@/components/EventCard";
@@ -24,6 +25,7 @@ export function PrincipalClient({
   events: EventSummary[];
   partners: PartnerByEvent[];
 }) {
+  const router = useRouter();
   const [events, setEvents] = useState(initialEvents);
   const [tipo, setTipo] = useState<TipoFilter>("todos");
   const [territorio, setTerritorio] = useState<TerritorioFilter>("todos");
@@ -101,6 +103,16 @@ export function PrincipalClient({
     setSelected(updated);
   }
 
+  // Third-party: su detalle vive en /third-party/detail (keyed por campana_evento).
+  // No abrimos el modal normal porque escribiría metadata contra fm_event_metadata (Luma).
+  function handleCardClick(e: EventSummary) {
+    if (e.evento_tipo === "Third Party") {
+      router.push(`/third-party/detail?ev=${encodeURIComponent(e.campana_evento)}`);
+      return;
+    }
+    setSelected(e);
+  }
+
   return (
     <div>
       {/* Filters */}
@@ -154,7 +166,7 @@ export function PrincipalClient({
             event={e}
             mode="principal"
             partner={effectivePartner(e, partnerByEvent.get(e.luma_event_id)) ?? undefined}
-            onClick={setSelected}
+            onClick={handleCardClick}
           />
         ))}
         {filtered.length === 0 && (

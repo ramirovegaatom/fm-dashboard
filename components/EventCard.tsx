@@ -72,7 +72,10 @@ export function EventCard({
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
-            <span className={`badge ${event.evento_tipo === "Presencial" ? "badge-presencial" : "badge-virtual"}`}>
+            <span
+              className={`badge ${event.evento_tipo === "Presencial" ? "badge-presencial" : event.evento_tipo === "Virtual" ? "badge-virtual" : ""}`}
+              style={event.evento_tipo === "Third Party" ? { background: "var(--bg-secondary)", color: "var(--fg-secondary)" } : undefined}
+            >
               {event.evento_tipo}
             </span>
             {event.hidden && (
