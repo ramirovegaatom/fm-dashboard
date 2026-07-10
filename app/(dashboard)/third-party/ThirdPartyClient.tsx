@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import Link from "next/link";
 import { ThirdPartySummary, ThirdPartyCompany } from "@/lib/supabase";
 import { formatCurrency } from "@/lib/format";
 import { attioCompanyUrl } from "@/lib/attio";
@@ -160,9 +161,15 @@ function ThirdPartyRow({ e, companies }: { e: ThirdPartySummary; companies: Thir
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
+          <Link
+            href={`/third-party/detail?ev=${encodeURIComponent(e.campana_evento)}`}
+            style={{ fontSize: 12, fontWeight: 600, color: "var(--fg-status-brand)", textDecoration: "none" }}
+          >
+            Ver detalle &rarr;
+          </Link>
           <button
             onClick={() => setShowCompanies((o) => !o)}
-            style={{ all: "unset", cursor: "pointer", fontSize: 12, fontWeight: 600, color: "var(--fg-status-brand)" }}
+            style={{ all: "unset", cursor: "pointer", fontSize: 12, color: "var(--fg-status-info)" }}
           >
             {showCompanies ? "Ocultar empresas" : `Ver empresas (${companies.length})`}
           </button>

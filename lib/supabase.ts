@@ -137,6 +137,23 @@ export type ThirdPartySummary = {
   demo: number;
   won: number;
   mrr_won: number;
+  event_income: number;
+  ad_spend: number;
+};
+
+// Persona de un evento third-party (fm_third_party_people) — tabla "fuente de datos". Jose 2026-07-10.
+export type ThirdPartyPerson = {
+  attio_person_id: string;
+  full_name: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  job_title: string | null;
+  phone: string | null;
+  email: string | null;
+  company_name: string | null;
+  company_domain: string | null;
+  origen_invitacion: string | null;
+  campana_evento: string | null;
 };
 
 // Detalle por empresa de un evento third-party (fm_third_party_companies_drill). Jose 2026-07-08.

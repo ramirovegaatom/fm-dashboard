@@ -4,8 +4,12 @@ import { useRef, useState, useTransition } from "react";
 import { supabase, EventInvoice } from "@/lib/supabase";
 import { formatCurrency } from "@/lib/format";
 import { addEventInvoice, deleteEventInvoice } from "./actions";
+import { addThirdPartyInvoice, deleteThirdPartyInvoice } from "@/app/(dashboard)/third-party/actions";
 
 type Tipo = "gasto" | "ingreso";
+type Variant = "event" | "thirdparty";
+type AddFn = (id: string, concepto: string, monto: number, pdfUrl: string | null, tipo: "gasto" | "ingreso") => Promise<{ success: boolean }>;
+type DelFn = (id: string, invoiceId: string) => Promise<{ success: boolean }>;
 
 // 2026-07-07 (Jose): facturas/gastos del evento como ítems (concepto + monto + PDF).
 // 2026-07-10 (Jose): mismo patrón para INGRESOS (MDF, aportes de partner). El costo total
@@ -45,12 +49,16 @@ export function EventInvoices({
   eventId,
   invoices,
   tipo = "gasto",
+  variant = "event",
 }: {
   eventId: string;
   invoices: EventInvoice[];
   tipo?: Tipo;
+  variant?: Variant;
 }) {
   const cfg = CFG[tipo];
+  const addFn: AddFn = variant === "thirdparty" ? addThirdPartyInvoice : addEventInvoice;
+  const delFn: DelFn = variant === "thirdparty" ? deleteThirdPartyInvoice : deleteEventInvoice;
   const [open, setOpen] = useState(false);
   const total = invoices.reduce((acc, i) => acc + Number(i.monto ?? 0), 0);
 
@@ -74,7 +82,7 @@ export function EventInvoices({
           {invoices.length > 0 && (
             <div style={{ display: "flex", flexDirection: "column", marginBottom: 8 }}>
               {invoices.map((inv) => (
-                <InvoiceRow key={inv.id} eventId={eventId} inv={inv} cfg={cfg} />
+                <InvoiceRow key={inv.id} eventId={eventId} inv={inv} cfg={cfg} delFn={delFn} />
               ))}
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, paddingTop: 8, fontSize: 13, fontWeight: 700 }}>
                 <span className="text-muted" style={{ fontWeight: 500 }}>{cfg.totalLabel}</span>
@@ -82,7 +90,7 @@ export function EventInvoices({
               </div>
             </div>
           )}
-          <AddInvoiceForm eventId={eventId} tipo={tipo} cfg={cfg} />
+          <AddInvoiceForm eventId={eventId} tipo={tipo} cfg={cfg} addFn={addFn} />
           <div className="text-muted" style={{ fontSize: 10, marginTop: 6 }}>
             {cfg.note}
           </div>
@@ -92,7 +100,7 @@ export function EventInvoices({
   );
 }
 
-function InvoiceRow({ eventId, inv, cfg }: { eventId: string; inv: EventInvoice; cfg: typeof CFG[Tipo] }) {
+function InvoiceRow({ eventId, inv, cfg, delFn }: { eventId: string; inv: EventInvoice; cfg: typeof CFG[Tipo]; delFn: DelFn }) {
   const [isPending, startTransition] = useTransition();
   return (
     <div
@@ -118,7 +126,7 @@ function InvoiceRow({ eventId, inv, cfg }: { eventId: string; inv: EventInvoice;
         <span className="text-muted" style={{ fontSize: 11 }}>sin PDF</span>
       )}
       <button
-        onClick={() => startTransition(async () => { await deleteEventInvoice(eventId, inv.id); })}
+        onClick={() => startTransition(async () => { await delFn(eventId, inv.id); })}
         disabled={isPending}
         title={cfg.deleteTitle}
         style={{ all: "unset", cursor: "pointer", fontSize: 12, color: "var(--fg-status-error)" }}
@@ -129,7 +137,7 @@ function InvoiceRow({ eventId, inv, cfg }: { eventId: string; inv: EventInvoice;
   );
 }
 
-function AddInvoiceForm({ eventId, tipo, cfg }: { eventId: string; tipo: Tipo; cfg: typeof CFG[Tipo] }) {
+function AddInvoiceForm({ eventId, tipo, cfg, addFn }: { eventId: string; tipo: Tipo; cfg: typeof CFG[Tipo]; addFn: AddFn }) {
   const [concepto, setConcepto] = useState("");
   const [monto, setMonto] = useState("");
   const [fileName, setFileName] = useState<string | null>(null);
@@ -163,7 +171,7 @@ function AddInvoiceForm({ eventId, tipo, cfg }: { eventId: string; tipo: Tipo; c
 
     startTransition(async () => {
       try {
-        await addEventInvoice(eventId, concepto, num, url, tipo);
+        await addFn(eventId, concepto, num, url, tipo);
         setConcepto("");
         setMonto("");
         setFileName(null);
