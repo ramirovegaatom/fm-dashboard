@@ -232,7 +232,7 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
       {/* QMs by Source */}
       {qmData.length > 0 && (
         <>
-          <div className="section-title">QMs por Fuente de Invitaci&oacute;n</div>
+          <div className="section-title">QMs por Fuente de Invitaci&oacute;n <span className="text-muted" style={{ fontWeight: 400, fontSize: 12, textTransform: "none" }}>(registrantes Luma)</span></div>
           <div className="card" style={{ marginBottom: 28 }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr repeat(3, auto)", gap: "8px 24px", fontSize: 12, alignItems: "center" }}>
               <div className="text-muted" style={{ fontWeight: 600, fontSize: 10, textTransform: "uppercase" }}>Fuente</div>
@@ -249,7 +249,9 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
               ))}
             </div>
             <div className="text-muted" style={{ fontSize: 10, marginTop: 12, borderTop: "1px solid var(--border-tertiary)", paddingTop: 8 }}>
-              Basado en registros matcheados con empresa ({e.pct_matched}% cobertura)
+              Desglose de las QM entre los <strong>registrantes de Luma</strong> matcheados a empresa, por su fuente de inscripci&oacute;n
+              ({e.pct_matched}% cobertura). Es un subconjunto/otra vista — el total puede no coincidir con &ldquo;QM FM&rdquo;,
+              que se ancla en el tag Campa&ntilde;a/Evento de Attio.
             </div>
           </div>
         </>
