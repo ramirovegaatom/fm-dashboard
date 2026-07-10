@@ -5,6 +5,15 @@ import Link from "next/link";
 import { ThirdPartySummary, ThirdPartyCompany } from "@/lib/supabase";
 import { formatCurrency } from "@/lib/format";
 import { attioCompanyUrl } from "@/lib/attio";
+import { StatCard } from "@/components/StatCard";
+import { MetricInfo } from "@/components/MetricInfo";
+import {
+  TerritorioPills,
+  matchTerritorio,
+  countByTerritorio,
+  type TerritorioFilter,
+} from "@/components/EventFilters";
+import { DateFilter, type DateRange } from "@/components/DateFilter";
 import { saveThirdPartyEvent, setThirdPartyHidden } from "./actions";
 
 // 2026-07-07 (Jose): eventos third-party (no-Luma). Se miden por Origen de invitación =
@@ -12,6 +21,7 @@ import { saveThirdPartyEvent, setThirdPartyHidden } from "./actions";
 // personas/empresas cargadas → QM → negocios. Nombre/fecha/país los carga José a mano.
 // 2026-07-08 (Jose): el QM por empresa y el detalle salen del tag Campaña/Evento del objeto
 // Company en Attio (fm_third_party_companies_drill), no de la lista events_companies.
+// 2026-07-10 (Jose): UI alineada al resto de las solapas (filtros + StatCard + cards estilo evento).
 export function ThirdPartyClient({
   events,
   companiesBySlug,
@@ -19,16 +29,41 @@ export function ThirdPartyClient({
   events: ThirdPartySummary[];
   companiesBySlug: Record<string, ThirdPartyCompany[]>;
 }) {
+  const [territorio, setTerritorio] = useState<TerritorioFilter>("todos");
+  const [dateRange, setDateRange] = useState<DateRange>({});
+
+  // Filtro por fecha (evento_fecha puede ser null: sin fecha no matchea un rango, pero
+  // aparece cuando no hay filtro de fecha activo).
+  const inRange = useMemo(() => {
+    if (!dateRange.from && !dateRange.to) return events;
+    return events.filter((e) => {
+      if (!e.evento_fecha) return false;
+      const d = new Date(e.evento_fecha + "T12:00:00");
+      if (dateRange.from && d < dateRange.from) return false;
+      if (dateRange.to && d > dateRange.to) return false;
+      return true;
+    });
+  }, [events, dateRange]);
+
+  const territorioCounts = useMemo(() => countByTerritorio(inRange, (e) => e.territorio), [inRange]);
+
+  const filtered = useMemo(
+    () => inRange.filter((e) => matchTerritorio(e.territorio, territorio)),
+    [inRange, territorio]
+  );
+
   const totals = useMemo(() => {
     return {
-      eventos: events.length,
-      personas: events.reduce((a, e) => a + Number(e.personas_cargadas ?? 0), 0),
-      empresas: events.reduce((a, e) => a + Number(e.empresas_cargadas ?? 0), 0),
-      qmFm: events.reduce((a, e) => a + Number(e.qm_por_fm ?? 0), 0),
-      won: events.reduce((a, e) => a + Number(e.won ?? 0), 0),
-      mrr: events.reduce((a, e) => a + Number(e.mrr_won ?? 0), 0),
+      eventos: filtered.length,
+      personas: filtered.reduce((a, e) => a + Number(e.personas_cargadas ?? 0), 0),
+      empresas: filtered.reduce((a, e) => a + Number(e.empresas_cargadas ?? 0), 0),
+      qmFm: filtered.reduce((a, e) => a + Number(e.qm_por_fm ?? 0), 0),
+      qmAsist: filtered.reduce((a, e) => a + Number(e.qm_asistida ?? 0), 0),
+      demo: filtered.reduce((a, e) => a + Number(e.demo ?? 0), 0),
+      won: filtered.reduce((a, e) => a + Number(e.won ?? 0), 0),
+      mrr: filtered.reduce((a, e) => a + Number(e.mrr_won ?? 0), 0),
     };
-  }, [events]);
+  }, [filtered]);
 
   return (
     <div>
@@ -42,24 +77,35 @@ export function ThirdPartyClient({
         sale del tag <strong>Campaña/Evento</strong> en Attio. Cargá nombre/fecha/país de cada evento; ocultá los slugs de prueba.
       </div>
 
-      {/* Totales */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 12, marginBottom: 24 }}>
-        <Total label="Eventos" value={totals.eventos} />
-        <Total label="Personas" value={totals.personas} />
-        <Total label="Empresas" value={totals.empresas} />
-        <Total label="QM FM" value={totals.qmFm} color="var(--fg-status-warning)" />
-        <Total label="Won" value={totals.won} color="var(--fg-status-info)" />
-        <Total label="MRR" value={formatCurrency(totals.mrr)} color="var(--fg-status-success)" />
+      {/* Filtros (mismo patrón que Principal/Partners) */}
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 24, alignItems: "center" }}>
+        <TerritorioPills value={territorio} onChange={setTerritorio} counts={territorioCounts} />
+        <DateFilter value={dateRange} onChange={setDateRange} />
       </div>
 
-      {events.length === 0 ? (
-        <div className="text-muted" style={{ fontSize: 13, padding: 20, textAlign: "center" }}>
-          No hay eventos third-party sincronizados todavía. Cuando se carguen personas con Origen de
-          invitación = Thirdparty en Attio, aparecen acá.
+      {/* Stats */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 12, marginBottom: 32 }}>
+        <StatCard value={totals.eventos} label="Eventos" />
+        <StatCard value={totals.personas} label="Personas" sub={`${totals.empresas} empresas`} />
+        <StatCard value={totals.empresas} label="Empresas" />
+        <StatCard value={totals.qmFm} label="QM FM" color="var(--fg-status-warning)" metricKey="qm_por_fm" />
+        <StatCard value={totals.qmAsist} label="QM Asist." color="var(--fg-status-warning)" metricKey="total_qm_asist" />
+        <StatCard value={totals.demo} label="Demo" metricKey="total_demo" />
+        <StatCard value={totals.won} label="Won" color="var(--fg-status-info)" metricKey="total_won" />
+        <StatCard value={formatCurrency(totals.mrr)} label="MRR" color="var(--fg-status-success)" metricKey="total_mrr" />
+      </div>
+
+      {/* Eventos */}
+      <div className="section-title">Eventos third party ({filtered.length})</div>
+      {filtered.length === 0 ? (
+        <div className="card text-muted" style={{ textAlign: "center", padding: 40, fontSize: 13 }}>
+          {events.length === 0
+            ? "No hay eventos third-party sincronizados todavía. Cuando se carguen personas con Origen de invitación = Thirdparty en Attio, aparecen acá."
+            : "No hay eventos third-party con los filtros seleccionados."}
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {events.map((e) => (
+          {filtered.map((e) => (
             <ThirdPartyRow key={e.campana_evento} e={e} companies={companiesBySlug[e.campana_evento] ?? []} />
           ))}
         </div>
@@ -68,20 +114,22 @@ export function ThirdPartyClient({
   );
 }
 
-function Total({ label, value, color }: { label: string; value: string | number; color?: string }) {
-  return (
-    <div className="card" style={{ textAlign: "center" }}>
-      <div className="stat-value" style={{ fontSize: 22, ...(color ? { color } : {}) }}>{value}</div>
-      <div className="stat-label">{label}</div>
-    </div>
-  );
-}
+const STAT_LABEL_STYLE: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 3,
+  justifyContent: "flex-end",
+};
 
-function Metric({ label, value, color }: { label: string; value: string | number; color?: string }) {
+// Métrica de la card, mismo estilo que EventCard (18px + stat-label + info).
+function CardMetric({ label, value, color, metricKey }: { label: string; value: string | number; color?: string; metricKey?: string }) {
   return (
-    <div style={{ textAlign: "center", minWidth: 64 }}>
-      <div style={{ fontSize: 16, fontWeight: 700, ...(color ? { color } : {}) }}>{value}</div>
-      <div className="text-muted" style={{ fontSize: 10 }}>{label}</div>
+    <div>
+      <div style={{ fontSize: 18, fontWeight: 700, ...(color ? { color } : {}) }}>{value}</div>
+      <div className="stat-label" style={STAT_LABEL_STYLE}>
+        {label}
+        {metricKey && <MetricInfo metricKey={metricKey} size={11} />}
+      </div>
     </div>
   );
 }
@@ -132,6 +180,7 @@ function ThirdPartyRow({ e, companies }: { e: ThirdPartySummary; companies: Thir
     });
   }
 
+  const detailHref = `/third-party/detail?ev=${encodeURIComponent(e.campana_evento)}`;
   const title = e.evento_nombre || e.campana_evento;
   const sinStage = companies.filter((c) => !c.outbound_stage).length;
   const sortedCompanies = [...companies].sort(
@@ -139,47 +188,78 @@ function ThirdPartyRow({ e, companies }: { e: ThirdPartySummary; companies: Thir
   );
 
   return (
-    <div className="card">
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-        <div style={{ flex: 1, minWidth: 200 }}>
-          <div style={{ fontSize: 14, fontWeight: 600 }}>{title}</div>
-          <div className="text-muted" style={{ fontSize: 11, fontFamily: "monospace" }}>
-            {e.campana_evento}
-            {e.evento_fecha ? ` · ${e.evento_fecha}` : ""}
-            {e.pais ? ` · ${e.pais}` : ""}
+    <div className="card" style={{ padding: 20 }}>
+      {/* Header estilo EventCard */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+            <span className="badge" style={{ background: "var(--bg-secondary)", color: "var(--fg-secondary)" }}>
+              Third Party
+            </span>
+            {e.territorio && (
+              <span className="badge" style={{ background: "var(--bg-secondary)", color: "var(--fg-secondary)" }}>
+                {e.territorio}
+              </span>
+            )}
+            <span className="text-muted" style={{ fontSize: 12 }}>
+              {e.evento_fecha
+                ? new Date(e.evento_fecha + "T12:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" })
+                : "sin fecha"}
+            </span>
           </div>
+          <h3 style={{ fontSize: 14, fontWeight: 500, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <Link href={detailHref} style={{ color: "inherit", textDecoration: "none" }}>
+              {title}
+            </Link>
+          </h3>
+          <p className="text-muted" style={{ fontSize: 12, margin: "2px 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {[e.pais, e.campana_evento].filter(Boolean).join(" · ")}
+          </p>
         </div>
 
-        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
-          <Metric label="Personas" value={e.personas_cargadas} />
-          <Metric label="Empresas" value={e.empresas_cargadas} />
-          <Metric label="QM FM" value={e.qm_por_fm} color="var(--fg-status-warning)" />
-          <Metric label="QM asist." value={e.qm_asistida} />
-          <Metric label="Demo" value={e.demo} />
-          <Metric label="Won" value={e.won} color="var(--fg-status-info)" />
-          <Metric label="MRR" value={formatCurrency(Number(e.mrr_won))} color="var(--fg-status-success)" />
+        <div style={{ display: "flex", gap: 16, flexShrink: 0, textAlign: "right" }}>
+          <CardMetric label="Personas" value={e.personas_cargadas} />
+          <CardMetric label="Empresas" value={e.empresas_cargadas} />
+          <CardMetric label="QM FM" value={e.qm_por_fm} color="var(--fg-status-warning)" metricKey="qm_por_fm" />
+          <CardMetric label="QM asist." value={e.qm_asistida} metricKey="total_qm_asist" />
+          <CardMetric label="Demo" value={e.demo} metricKey="total_demo" />
+          <CardMetric label="Won" value={e.won} color="var(--fg-status-info)" metricKey="won" />
+          <CardMetric label="MRR" value={formatCurrency(Number(e.mrr_won))} color="var(--fg-status-success)" metricKey="mrr_won" />
         </div>
+      </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
-          <Link
-            href={`/third-party/detail?ev=${encodeURIComponent(e.campana_evento)}`}
-            style={{ fontSize: 12, fontWeight: 600, color: "var(--fg-status-brand)", textDecoration: "none" }}
-          >
-            Ver detalle &rarr;
-          </Link>
+      {/* Barra de acciones */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          marginTop: 14,
+          paddingTop: 12,
+          borderTop: "1px solid var(--border-tertiary)",
+        }}
+      >
+        <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
           <button
             onClick={() => setShowCompanies((o) => !o)}
-            style={{ all: "unset", cursor: "pointer", fontSize: 12, color: "var(--fg-status-info)" }}
+            style={{ all: "unset", cursor: "pointer", fontSize: 12, fontWeight: 600, color: "var(--fg-status-info)" }}
           >
             {showCompanies ? "Ocultar empresas" : `Ver empresas (${companies.length})`}
           </button>
           <button
             onClick={() => setOpen((o) => !o)}
-            style={{ all: "unset", cursor: "pointer", fontSize: 12, color: "var(--fg-status-info)" }}
+            style={{ all: "unset", cursor: "pointer", fontSize: 12, fontWeight: 600, color: "var(--fg-secondary)" }}
           >
-            {open ? "Cerrar" : "Editar datos"}
+            {open ? "Cerrar edición" : "Editar datos"}
           </button>
         </div>
+        <Link
+          href={detailHref}
+          style={{ fontSize: 12, fontWeight: 600, color: "var(--fg-status-brand)", textDecoration: "none" }}
+        >
+          Ver detalle &rarr;
+        </Link>
       </div>
 
       {/* Detalle por empresa (Jose 2026-07-08) */}
