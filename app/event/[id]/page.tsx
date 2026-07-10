@@ -81,6 +81,8 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
   const partners = (partnersData ?? []) as PartnerByEvent[];
   const eventMappings = ((mappingData ?? []) as { attio_campana: string }[]).map((m) => m.attio_campana);
   const invoices = (invoicesRows ?? []) as EventInvoice[];
+  const gastos = invoices.filter((i) => i.tipo !== "ingreso");
+  const ingresos = invoices.filter((i) => i.tipo === "ingreso");
 
   if (!e) {
     return (
@@ -129,14 +131,17 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
         {invoices.length > 0 ? (
           <div className="card">
-            <div className="text-muted" style={{ fontSize: 11, marginBottom: 8 }}>Costo total del evento (USD)</div>
-            <div style={{ fontSize: 24, fontWeight: 700 }}>${Number(e.event_cost).toLocaleString()}</div>
+            <div className="text-muted" style={{ fontSize: 11, marginBottom: 8 }}>Costo total del evento (neto)</div>
+            <div style={{ fontSize: 24, fontWeight: 700, color: Number(e.event_cost) < 0 ? "var(--fg-status-success)" : undefined }}>
+              ${Number(e.event_cost).toLocaleString()}
+            </div>
             <div className="text-muted" style={{ fontSize: 10, marginTop: 4 }}>
-              Suma de {invoices.length} factura{invoices.length === 1 ? "" : "s"} — ver abajo
+              ${Number(e.event_cost_bruto).toLocaleString()} gastos
+              {Number(e.event_income) > 0 ? ` − $${Number(e.event_income).toLocaleString()} ingresos` : ""} — ver abajo
             </div>
           </div>
         ) : (
-          <EventCostInput eventId={e.luma_event_id} currentValue={Number(e.event_cost)} />
+          <EventCostInput eventId={e.luma_event_id} currentValue={Number(e.event_cost_bruto)} />
         )}
         <AdSpendInput eventId={e.luma_event_id} currentValue={Number(e.ad_spend)} />
         <TerritoryEditor
@@ -153,8 +158,9 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
         <EventMappingEditor eventId={e.luma_event_id} mappings={eventMappings} />
       </div>
 
-      {/* Facturas / gastos del evento (post-evento) — Jose 2026-07-07 */}
-      <EventInvoices eventId={e.luma_event_id} invoices={invoices} />
+      {/* Facturas/gastos e ingresos del evento — Jose 2026-07-07 / 2026-07-10 */}
+      <EventInvoices eventId={e.luma_event_id} invoices={gastos} tipo="gasto" />
+      <EventInvoices eventId={e.luma_event_id} invoices={ingresos} tipo="ingreso" />
 
       {/* Personas */}
       <div className="section-title">Personas</div>

@@ -134,42 +134,50 @@ export async function removeEventMapping(eventId: string, attioCampana: string) 
 }
 
 // 2026-07-07 (Jose): facturas/gastos del evento como ítems (concepto + monto + PDF).
-// No hay un PDF con el costo total; son varias facturas de cosas del evento. El
-// event_cost del evento se recalcula como la SUMA de los montos de sus ítems.
-async function recomputeEventCost(eventId: string) {
+// 2026-07-10 (Jose): + ingresos (MDF, aportes de partner). event_cost = SUMA de gastos (bruto);
+// event_income = SUMA de ingresos. El costo NETO (bruto - ingresos) lo calcula fm_dashboard.
+// Nota: solo pisamos event_cost si hay gastos como ítems; si no, respetamos el valor manual
+// (así agregar solo ingresos a un evento con costo manual no borra ese costo).
+async function recomputeCostAndIncome(eventId: string) {
   const { data } = await supabase
     .from("fm_event_invoices")
-    .select("monto")
+    .select("monto, tipo")
     .eq("luma_event_id", eventId);
-  const total = (data ?? []).reduce((acc, r) => acc + Number((r as { monto: number }).monto ?? 0), 0);
-  const { error } = await supabase
-    .from("fm_event_metadata")
-    .upsert(
-      { luma_event_id: eventId, event_cost: total, updated_at: new Date().toISOString() },
-      { onConflict: "luma_event_id" }
-    );
+  const rows = (data ?? []) as { monto: number; tipo: string }[];
+  const gastoRows = rows.filter((r) => r.tipo !== "ingreso");
+  const ingresos = rows.filter((r) => r.tipo === "ingreso").reduce((a, r) => a + Number(r.monto ?? 0), 0);
+  const patch: Record<string, unknown> = {
+    luma_event_id: eventId,
+    event_income: ingresos,
+    updated_at: new Date().toISOString(),
+  };
+  if (gastoRows.length > 0) {
+    patch.event_cost = gastoRows.reduce((a, r) => a + Number(r.monto ?? 0), 0);
+  }
+  const { error } = await supabase.from("fm_event_metadata").upsert(patch, { onConflict: "luma_event_id" });
   if (error) throw new Error(error.message);
-  return total;
 }
 
 export async function addEventInvoice(
   eventId: string,
   concepto: string,
   monto: number,
-  pdfUrl: string | null
+  pdfUrl: string | null,
+  tipo: "gasto" | "ingreso" = "gasto"
 ) {
   const c = concepto.trim();
-  if (!c) throw new Error("Falta el concepto del gasto");
+  if (!c) throw new Error("Falta el concepto");
   if (Number.isNaN(monto) || monto < 0) throw new Error("Monto inválido");
   const { error } = await supabase.from("fm_event_invoices").insert({
     luma_event_id: eventId,
     concepto: c,
     monto,
     pdf_url: pdfUrl,
+    tipo,
     created_by: "dashboard",
   });
   if (error) throw new Error(error.message);
-  await recomputeEventCost(eventId);
+  await recomputeCostAndIncome(eventId);
   revalidatePath("/");
   revalidatePath("/partners");
   revalidatePath(`/event/${eventId}`);
@@ -179,7 +187,7 @@ export async function addEventInvoice(
 export async function deleteEventInvoice(eventId: string, invoiceId: string) {
   const { error } = await supabase.from("fm_event_invoices").delete().eq("id", invoiceId);
   if (error) throw new Error(error.message);
-  await recomputeEventCost(eventId);
+  await recomputeCostAndIncome(eventId);
   revalidatePath("/");
   revalidatePath("/partners");
   revalidatePath(`/event/${eventId}`);

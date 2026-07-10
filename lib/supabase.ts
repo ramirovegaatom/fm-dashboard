@@ -40,7 +40,9 @@ export type EventSummary = {
   mrr_won: number;
   total_icp_real: number;
   icp_real_pct: number;
-  event_cost: number;
+  event_cost: number; // NETO: bruto - ingresos (lo calcula fm_dashboard)
+  event_cost_bruto: number; // suma de gastos
+  event_income: number; // suma de ingresos (MDF, aportes de partner)
   pais: string | null;
   territorio: "Norte" | "Sur" | "Brasil" | null;
   qm_agendada: number;
@@ -155,6 +157,7 @@ export type EventInvoice = {
   monto: number;
   pdf_url: string | null;
   created_at: string;
+  tipo: "gasto" | "ingreso";
 };
 
 export type WonByCloseDate = {

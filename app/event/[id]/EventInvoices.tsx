@@ -5,16 +5,52 @@ import { supabase, EventInvoice } from "@/lib/supabase";
 import { formatCurrency } from "@/lib/format";
 import { addEventInvoice, deleteEventInvoice } from "./actions";
 
-// 2026-07-07 (Jose): facturas/gastos del evento. No hay un PDF con el costo total,
-// sino varias facturas de cosas del evento. Cada ítem: concepto + monto + PDF (prueba).
-// El costo total del evento se calcula sumando los montos de los ítems.
+type Tipo = "gasto" | "ingreso";
+
+// 2026-07-07 (Jose): facturas/gastos del evento como ítems (concepto + monto + PDF).
+// 2026-07-10 (Jose): mismo patrón para INGRESOS (MDF, aportes de partner). El costo total
+// del evento = suma de gastos − suma de ingresos (neto). Este componente sirve para ambos.
+const CFG: Record<Tipo, {
+  title: string;
+  conceptoLabel: string;
+  placeholder: string;
+  totalLabel: string;
+  deleteTitle: string;
+  note: string;
+  amountColor?: string;
+  emptyConcepto: string;
+}> = {
+  gasto: {
+    title: "Facturas / gastos del evento",
+    conceptoLabel: "Concepto (qué se gastó)",
+    placeholder: "Ej: Catering, venue, impresión…",
+    totalLabel: "Total gastos:",
+    deleteTitle: "Eliminar gasto",
+    note: "El costo bruto del evento se calcula sumando los gastos cargados acá.",
+    emptyConcepto: "Poné el concepto (qué se gastó).",
+  },
+  ingreso: {
+    title: "Ingresos del evento (MDF, aportes de partner…)",
+    conceptoLabel: "Concepto (qué ingresó)",
+    placeholder: "Ej: MDF Google, aporte Partner X…",
+    totalLabel: "Total ingresos:",
+    deleteTitle: "Eliminar ingreso",
+    note: "Los ingresos se restan del costo total del evento (costo neto = gastos − ingresos).",
+    amountColor: "var(--fg-status-success)",
+    emptyConcepto: "Poné el concepto (qué ingresó).",
+  },
+};
+
 export function EventInvoices({
   eventId,
   invoices,
+  tipo = "gasto",
 }: {
   eventId: string;
   invoices: EventInvoice[];
+  tipo?: Tipo;
 }) {
+  const cfg = CFG[tipo];
   const [open, setOpen] = useState(false);
   const total = invoices.reduce((acc, i) => acc + Number(i.monto ?? 0), 0);
 
@@ -25,8 +61,8 @@ export function EventInvoices({
         style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}
       >
         <span style={{ fontSize: 13, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 8 }}>
-          Facturas / gastos del evento
-          <span className="badge" style={{ background: "var(--bg-secondary)", color: "var(--fg-secondary)", fontSize: 10 }}>
+          {cfg.title}
+          <span className="badge" style={{ background: "var(--bg-secondary)", color: cfg.amountColor ?? "var(--fg-secondary)", fontSize: 10 }}>
             {invoices.length} · {formatCurrency(total)}
           </span>
         </span>
@@ -38,17 +74,17 @@ export function EventInvoices({
           {invoices.length > 0 && (
             <div style={{ display: "flex", flexDirection: "column", marginBottom: 8 }}>
               {invoices.map((inv) => (
-                <InvoiceRow key={inv.id} eventId={eventId} inv={inv} />
+                <InvoiceRow key={inv.id} eventId={eventId} inv={inv} cfg={cfg} />
               ))}
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, paddingTop: 8, fontSize: 13, fontWeight: 700 }}>
-                <span className="text-muted" style={{ fontWeight: 500 }}>Costo total del evento:</span>
-                <span>{formatCurrency(total)}</span>
+                <span className="text-muted" style={{ fontWeight: 500 }}>{cfg.totalLabel}</span>
+                <span style={cfg.amountColor ? { color: cfg.amountColor } : undefined}>{formatCurrency(total)}</span>
               </div>
             </div>
           )}
-          <AddInvoiceForm eventId={eventId} />
+          <AddInvoiceForm eventId={eventId} tipo={tipo} cfg={cfg} />
           <div className="text-muted" style={{ fontSize: 10, marginTop: 6 }}>
-            El costo total del evento se calcula sumando los montos cargados acá.
+            {cfg.note}
           </div>
         </div>
       )}
@@ -56,7 +92,7 @@ export function EventInvoices({
   );
 }
 
-function InvoiceRow({ eventId, inv }: { eventId: string; inv: EventInvoice }) {
+function InvoiceRow({ eventId, inv, cfg }: { eventId: string; inv: EventInvoice; cfg: typeof CFG[Tipo] }) {
   const [isPending, startTransition] = useTransition();
   return (
     <div
@@ -73,7 +109,7 @@ function InvoiceRow({ eventId, inv }: { eventId: string; inv: EventInvoice }) {
       <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {inv.concepto}
       </div>
-      <div style={{ fontSize: 13, fontWeight: 600 }}>{formatCurrency(Number(inv.monto))}</div>
+      <div style={{ fontSize: 13, fontWeight: 600, ...(cfg.amountColor ? { color: cfg.amountColor } : {}) }}>{formatCurrency(Number(inv.monto))}</div>
       {inv.pdf_url ? (
         <a href={inv.pdf_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: "var(--fg-status-info)", whiteSpace: "nowrap" }}>
           Ver PDF ↗
@@ -84,7 +120,7 @@ function InvoiceRow({ eventId, inv }: { eventId: string; inv: EventInvoice }) {
       <button
         onClick={() => startTransition(async () => { await deleteEventInvoice(eventId, inv.id); })}
         disabled={isPending}
-        title="Eliminar este gasto"
+        title={cfg.deleteTitle}
         style={{ all: "unset", cursor: "pointer", fontSize: 12, color: "var(--fg-status-error)" }}
       >
         ✕
@@ -93,7 +129,7 @@ function InvoiceRow({ eventId, inv }: { eventId: string; inv: EventInvoice }) {
   );
 }
 
-function AddInvoiceForm({ eventId }: { eventId: string }) {
+function AddInvoiceForm({ eventId, tipo, cfg }: { eventId: string; tipo: Tipo; cfg: typeof CFG[Tipo] }) {
   const [concepto, setConcepto] = useState("");
   const [monto, setMonto] = useState("");
   const [fileName, setFileName] = useState<string | null>(null);
@@ -107,7 +143,7 @@ function AddInvoiceForm({ eventId }: { eventId: string }) {
   async function handleAdd() {
     setError(null);
     const num = parseFloat(monto);
-    if (!concepto.trim()) { setError("Poné el concepto (qué se gastó)."); return; }
+    if (!concepto.trim()) { setError(cfg.emptyConcepto); return; }
     if (Number.isNaN(num) || num < 0) { setError("Monto inválido."); return; }
 
     const file = fileRef.current?.files?.[0] ?? null;
@@ -116,7 +152,7 @@ function AddInvoiceForm({ eventId }: { eventId: string }) {
       if (file.type !== "application/pdf") { setError("El archivo debe ser un PDF."); return; }
       setUploading(true);
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-      const path = `${eventId}/${Date.now()}-${safeName}`;
+      const path = `${eventId}/${tipo}-${Date.now()}-${safeName}`;
       const { error: upErr } = await supabase.storage
         .from("event-invoices")
         .upload(path, file, { upsert: true, contentType: "application/pdf" });
@@ -127,7 +163,7 @@ function AddInvoiceForm({ eventId }: { eventId: string }) {
 
     startTransition(async () => {
       try {
-        await addEventInvoice(eventId, concepto, num, url);
+        await addEventInvoice(eventId, concepto, num, url, tipo);
         setConcepto("");
         setMonto("");
         setFileName(null);
@@ -141,8 +177,8 @@ function AddInvoiceForm({ eventId }: { eventId: string }) {
   return (
     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end", paddingTop: 4 }}>
       <div style={{ flex: 2, minWidth: 160 }}>
-        <div className="text-muted" style={{ fontSize: 11, marginBottom: 4 }}>Concepto (qué se gastó)</div>
-        <input value={concepto} onChange={(e) => setConcepto(e.target.value)} placeholder="Ej: Catering, venue, impresión…" style={{ ...inputStyle, width: "100%" }} />
+        <div className="text-muted" style={{ fontSize: 11, marginBottom: 4 }}>{cfg.conceptoLabel}</div>
+        <input value={concepto} onChange={(e) => setConcepto(e.target.value)} placeholder={cfg.placeholder} style={{ ...inputStyle, width: "100%" }} />
       </div>
       <div style={{ flex: 1, minWidth: 100 }}>
         <div className="text-muted" style={{ fontSize: 11, marginBottom: 4 }}>Monto (USD)</div>
