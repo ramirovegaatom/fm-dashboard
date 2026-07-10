@@ -78,24 +78,32 @@ export function PrincipalClient({
   const totals = useMemo(
     () =>
       filtered.reduce(
-        (acc, e) => ({
-          // 2026-05-27 (Jose): Registros = aceptados. Mantenemos totalRegs aparte para el sub.
-          registros: acc.registros + e.total_aprobados_icp,
-          totalRegs: acc.totalRegs + e.total_registros,
-          asistentes: acc.asistentes + (e.total_asistentes || e.total_joined_virtual || 0),
-          qmFm: acc.qmFm + e.qm_por_fm,
-          qmAsist: acc.qmAsist + e.qm_asistida,
-          demo: acc.demo + e.demo,
-          won: acc.won + e.won,
-          mrr: acc.mrr + Number(e.mrr_won),
-          cost: acc.cost + Number(e.event_cost),
-        }),
-        { registros: 0, totalRegs: 0, asistentes: 0, qmFm: 0, qmAsist: 0, demo: 0, won: 0, mrr: 0, cost: 0 }
+        (acc, e) => {
+          // 2026-07-10 (Jose): third-party no tiene data de asistencia (no hay inscriptos
+          // Luma). Sí suma "registrados" (personas del CRM), pero NO debe entrar en la tasa
+          // de asistencia. Por eso asistBase (denominador de la tasa) excluye los TP.
+          const esTP = e.evento_tipo === "Third Party";
+          return {
+            // 2026-05-27 (Jose): Registros = aceptados. Mantenemos totalRegs aparte para el sub.
+            registros: acc.registros + e.total_aprobados_icp,
+            totalRegs: acc.totalRegs + e.total_registros,
+            asistentes: acc.asistentes + (e.total_asistentes || e.total_joined_virtual || 0),
+            asistBase: acc.asistBase + (esTP ? 0 : e.total_aprobados_icp),
+            qmFm: acc.qmFm + e.qm_por_fm,
+            qmAsist: acc.qmAsist + e.qm_asistida,
+            demo: acc.demo + e.demo,
+            won: acc.won + e.won,
+            mrr: acc.mrr + Number(e.mrr_won),
+            cost: acc.cost + Number(e.event_cost),
+          };
+        },
+        { registros: 0, totalRegs: 0, asistentes: 0, asistBase: 0, qmFm: 0, qmAsist: 0, demo: 0, won: 0, mrr: 0, cost: 0 }
       ),
     [filtered]
   );
 
-  const tasaAsis = totals.registros > 0 ? Math.round((totals.asistentes / totals.registros) * 100) : 0;
+  // Tasa de asistencia sobre eventos con data de asistencia (excluye third-party).
+  const tasaAsis = totals.asistBase > 0 ? Math.round((totals.asistentes / totals.asistBase) * 100) : 0;
   const descalif = Math.max(totals.totalRegs - totals.registros, 0);
 
   function handleUpdate(updated: EventSummary) {

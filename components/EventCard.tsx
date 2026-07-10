@@ -34,8 +34,12 @@ export function EventCard({
   const costLabel = isPauta ? "Inversión" : "Costo";
   // 2026-07-06 (Jose): tasa principal sobre aceptados (registros = total_aprobados_icp),
   // no sobre registros totales. Mismo criterio que EventModal / detalle del evento.
+  // Third Party no tiene data de asistencia (no hay inscriptos Luma): no mostramos tasa.
+  const sinAsistencia = !isPauta && event.evento_tipo === "Third Party";
   const tasa = isPauta
     ? event.pct_asistencia_performance
+    : sinAsistencia
+    ? null
     : registros > 0
     ? Math.round((asistentes / registros) * 100)
     : 0;
@@ -170,7 +174,7 @@ export function EventCard({
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
           <span className="text-muted" style={{ fontSize: 10 }}>
-            Tasa asistencia: {tasa ?? 0}%
+            Tasa asistencia: {tasa == null ? "s/d" : `${tasa}%`}
           </span>
           <span className="text-muted" style={{ fontSize: 10 }}>
             {event.pct_matched}% match
