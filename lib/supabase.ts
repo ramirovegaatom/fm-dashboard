@@ -1,8 +1,21 @@
 import { createClient } from "@supabase/supabase-js";
 
+// 2026-07-11: Supabase activó RLS (sin políticas) en las tablas base y deshabilitó el
+// anon key legacy. Las lecturas del dashboard corren server-side, así que usan el SECRET
+// key (bypassa RLS) desde una env var SOLO-servidor: Next NO inyecta esta var al bundle
+// del cliente (solo inyecta NEXT_PUBLIC_*), así que el secret nunca se expone.
+// En el cliente (ej: upload de facturas en EventInvoices) cae al publishable key, que es
+// rol anon (seguro de exponer): con RLS activa no puede leer datos, solo lo que permitan
+// las políticas de Storage.
+const supabaseKey =
+  process.env.SUPABASE_SECRET_KEY ?? // solo-servidor, bypassa RLS (lecturas del dashboard)
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? // fallback cliente (publishable/anon, público)
+  "";
+
 export const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
+  supabaseKey,
+  { auth: { persistSession: false, autoRefreshToken: false } }
 );
 
 export type EventSummary = {
