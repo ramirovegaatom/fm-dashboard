@@ -205,6 +205,20 @@ export type WonByCloseDate = {
   pais: string | null;
 };
 
+// Sección Seguimiento (fm_seguimiento_companies): funnel por Outbound Stage + scorecard
+// BDR. Una fila por (empresa, campaña). bdr_assigned_at = active_from del assigned_bdr
+// en Attio (cuándo se seteó = fecha de asignación). 2026-07-11.
+export type SeguimientoCompany = {
+  campana_evento: string;
+  attio_company_id: string;
+  company_name: string | null;
+  outbound_stage: string | null;
+  etapa_funnel: "sin_prospectar" | "siendo_prospectada" | "procesada" | "respuesta_positiva" | "otros";
+  assigned_bdr_id: string | null;
+  assigned_bdr_name: string | null;
+  bdr_assigned_at: string | null;
+};
+
 export type DealDrill = {
   luma_event_id: string;
   attio_deal_id: string;

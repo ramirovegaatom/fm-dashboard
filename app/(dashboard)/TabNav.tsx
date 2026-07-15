@@ -8,6 +8,7 @@ const TABS = [
   { href: "/partners", label: "Partners" },
   { href: "/pauta", label: "Pauta" },
   { href: "/third-party", label: "Third Party" },
+  { href: "/seguimiento", label: "Seguimiento" },
   { href: "/mrr", label: "MRR cerrado" },
 ];
 
