@@ -4,12 +4,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { SeguimientoCompany } from "@/lib/supabase";
 import { attioCompanyUrl } from "@/lib/attio";
 
-// Spec del equipo + iteración José (2026-07-16): funnel por Outbound Stage VALIDADO por
-// actividades reales (tabla activities), scorecard por BDR con desglose por etapa, filtro
-// de campaña con búsqueda, DropOff como etapa, y clientes (lifecycle Customer) descartados.
+// Spec del equipo + iteraciones José (2026-07-16/17): funnel por Outbound Stage VALIDADO
+// por actividades reales, scorecard por BDR con desglose por etapa, filtro de campaña con
+// búsqueda, filtro multi-select de BDRs, y drill por etapa al clickear las stats de un BDR.
 // "Procesada por actividad" = estructura estricta por contacto: 3 llamadas + 2 WhatsApp
-// o 3 WhatsApp + 2 llamadas. El stage 'Procesada' solo NO alcanza (control de gestión).
+// o 3 WhatsApp + 2 llamadas. Clientes (lifecycle Customer) excluidos en la vista SQL.
 type EtapaKey = SeguimientoCompany["etapa_funnel"];
+
+const SIN_BDR = "— Sin BDR asignado —";
 
 const ETAPAS: { key: EtapaKey; label: string; labelCorto: string; detalle: string; color: string }[] = [
   { key: "sin_prospectar", label: "Sin prospectar", labelCorto: "Sin prospectar", detalle: "PRE-QM + sin actividad (vacío, Ready, Not Started)", color: "var(--fg-status-error)" },
@@ -19,8 +21,18 @@ const ETAPAS: { key: EtapaKey; label: string; labelCorto: string; detalle: strin
   { key: "dropoff", label: "DropOff", labelCorto: "DropOff", detalle: "Descalificadas (no ICP) + Recycle", color: "var(--fg-status-warning)" },
 ];
 
+const ETAPA_LABEL: Record<EtapaKey, string> = {
+  sin_prospectar: "Sin prospectar",
+  siendo_prospectada: "Prospectando",
+  procesada: "Procesada",
+  respuesta_positiva: "Resp. positiva",
+  dropoff: "DropOff",
+};
+
 export function SeguimientoClient({ companies }: { companies: SeguimientoCompany[] }) {
   const [campana, setCampana] = useState<string>("todas");
+  // Multi-select de BDRs: vacío = todos (feedback José 2026-07-17).
+  const [bdrsSel, setBdrsSel] = useState<Set<string>>(new Set());
 
   const campanas = useMemo(() => {
     const set = new Set<string>();
@@ -28,10 +40,28 @@ export function SeguimientoClient({ companies }: { companies: SeguimientoCompany
     return [...set].sort();
   }, [companies]);
 
-  const filtered = useMemo(
+  const byCampana = useMemo(
     () => (campana === "todas" ? companies : companies.filter((c) => c.campana_evento === campana)),
     [companies, campana]
   );
+
+  // Opciones de BDR (dentro de la campaña activa), ordenadas por asignadas desc.
+  const bdrOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of byCampana) {
+      const key = c.assigned_bdr_name ?? SIN_BDR;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .sort((a, b) => (a[0] === SIN_BDR ? 1 : 0) - (b[0] === SIN_BDR ? 1 : 0) || b[1] - a[1])
+      .map(([name, count]) => ({ name, count }));
+  }, [byCampana]);
+
+  // Filtro por BDR aplicado a TODA la vista (funnel + scorecard), coherente con el resto.
+  const filtered = useMemo(() => {
+    if (bdrsSel.size === 0) return byCampana;
+    return byCampana.filter((c) => bdrsSel.has(c.assigned_bdr_name ?? SIN_BDR));
+  }, [byCampana, bdrsSel]);
 
   const funnel = useMemo(() => {
     const counts: Record<EtapaKey, number> = { sin_prospectar: 0, siendo_prospectada: 0, procesada: 0, respuesta_positiva: 0, dropoff: 0 };
@@ -41,30 +71,23 @@ export function SeguimientoClient({ companies }: { companies: SeguimientoCompany
 
   const asignadas = filtered.length;
 
-  // Scorecard por BDR: asignadas + desglose por etapa (spec José: "47 asignadas - 5 sin
-  // prospectar - Prospectando - DropOff - respuesta positiva") + drill de sin prospectar.
   const bdrs = useMemo(() => {
-    const map = new Map<string, { name: string; asignadas: number; etapas: Record<EtapaKey, number>; sinProspectar: SeguimientoCompany[] }>();
+    const map = new Map<string, { name: string; companies: SeguimientoCompany[]; etapas: Record<EtapaKey, number> }>();
     for (const c of filtered) {
-      const key = c.assigned_bdr_name ?? "— Sin BDR asignado —";
+      const key = c.assigned_bdr_name ?? SIN_BDR;
       const entry = map.get(key) ?? {
         name: key,
-        asignadas: 0,
+        companies: [],
         etapas: { sin_prospectar: 0, siendo_prospectada: 0, procesada: 0, respuesta_positiva: 0, dropoff: 0 },
-        sinProspectar: [],
       };
-      entry.asignadas++;
+      entry.companies.push(c);
       entry.etapas[c.etapa_funnel]++;
-      if (c.etapa_funnel === "sin_prospectar") entry.sinProspectar.push(c);
       map.set(key, entry);
     }
-    for (const e of map.values()) {
-      e.sinProspectar.sort((a, b) => (a.bdr_assigned_at ?? "").localeCompare(b.bdr_assigned_at ?? ""));
-    }
     return [...map.values()].sort((a, b) => {
-      const aNull = a.name.startsWith("—") ? 1 : 0;
-      const bNull = b.name.startsWith("—") ? 1 : 0;
-      return aNull - bNull || b.asignadas - a.asignadas;
+      const aNull = a.name === SIN_BDR ? 1 : 0;
+      const bNull = b.name === SIN_BDR ? 1 : 0;
+      return aNull - bNull || b.companies.length - a.companies.length;
     });
   }, [filtered]);
 
@@ -81,18 +104,21 @@ export function SeguimientoClient({ companies }: { companies: SeguimientoCompany
         <strong>Customer</strong>) no se cuentan.
       </div>
 
-      {/* Filtro por campaña con búsqueda (feedback José #1) */}
-      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 24, alignItems: "center" }}>
+      {/* Filtros: campaña (búsqueda) + BDRs (multi-select) */}
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 24, alignItems: "center" }}>
         <CampanaSearch campanas={campanas} value={campana} onChange={setCampana} />
+        <BdrMultiSelect options={bdrOptions} selected={bdrsSel} onChange={setBdrsSel} />
         <span className="text-muted" style={{ fontSize: 12 }}>
-          {asignadas} empresas asignadas{campana !== "todas" ? " en esta campaña" : " en total"}
+          {asignadas} empresas asignadas
+          {campana !== "todas" ? " · campaña filtrada" : ""}
+          {bdrsSel.size > 0 ? ` · ${bdrsSel.size} BDR${bdrsSel.size === 1 ? "" : "s"}` : ""}
         </span>
       </div>
 
       {/* Sección 1 — Funnel general */}
       <div className="section-title">Funnel general</div>
       <div className="card" style={{ marginBottom: 32 }}>
-        <FunnelRow label="Asignadas" detalle="empresas totales según la campaña (sin clientes)" value={asignadas} total={asignadas} color="var(--fg-primary)" bold />
+        <FunnelRow label="Asignadas" detalle="empresas totales según los filtros (sin clientes)" value={asignadas} total={asignadas} color="var(--fg-primary)" bold />
         {ETAPAS.map((e) => (
           <FunnelRow key={e.key} label={e.label} detalle={e.detalle} value={funnel[e.key]} total={asignadas} color={e.color} />
         ))}
@@ -103,7 +129,7 @@ export function SeguimientoClient({ companies }: { companies: SeguimientoCompany
         </div>
       </div>
 
-      {/* Sección 2 — Scorecard por BDR */}
+      {/* Sección 2 — Scorecard por BDR (stats clickeables → drill por etapa) */}
       <div className="section-title">Scorecard por BDR ({bdrs.length})</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         {bdrs.map((b) => (
@@ -119,7 +145,7 @@ export function SeguimientoClient({ companies }: { companies: SeguimientoCompany
   );
 }
 
-// Combobox de campaña con búsqueda (el dropdown pelado no escala a 60+ campañas).
+// Combobox de campaña con búsqueda (60+ campañas no escalan en un select pelado).
 function CampanaSearch({ campanas, value, onChange }: { campanas: string[]; value: string; onChange: (v: string) => void }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -150,23 +176,7 @@ function CampanaSearch({ campanas, value, onChange }: { campanas: string[]; valu
   const isActive = value !== "todas";
   return (
     <div ref={wrapRef} style={{ position: "relative", display: "inline-block" }}>
-      <button
-        onClick={() => setOpen((o) => !o)}
-        style={{
-          padding: "6px 12px",
-          fontSize: 12,
-          fontWeight: 600,
-          borderRadius: 8,
-          border: "1px solid var(--border-tertiary)",
-          background: isActive ? "var(--fg-primary)" : "var(--bg-primary)",
-          color: isActive ? "var(--bg-primary)" : "var(--fg-secondary)",
-          cursor: "pointer",
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 8,
-          maxWidth: 380,
-        }}
-      >
+      <button onClick={() => setOpen((o) => !o)} style={filterBtnStyle(isActive)}>
         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {isActive ? value : `Todas las campañas (${campanas.length})`}
         </span>
@@ -174,42 +184,139 @@ function CampanaSearch({ campanas, value, onChange }: { campanas: string[]; valu
       </button>
 
       {open && (
-        <div
-          style={{
-            position: "absolute",
-            top: "calc(100% + 4px)",
-            left: 0,
-            zIndex: 50,
-            width: 360,
-            background: "var(--bg-primary)",
-            border: "1px solid var(--border-tertiary)",
-            borderRadius: 12,
-            boxShadow: "0px 8px 24px rgba(9,9,11,0.12)",
-            padding: 8,
-          }}
-        >
+        <div style={dropdownStyle}>
           <input
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Buscar evento…"
-            style={{
-              width: "100%",
-              padding: "7px 10px",
-              fontSize: 12,
-              borderRadius: 8,
-              border: "1px solid var(--border-tertiary)",
-              background: "var(--bg-secondary)",
-              color: "var(--fg-primary)",
-              outline: "none",
-              marginBottom: 6,
-            }}
+            style={searchInputStyle}
           />
           <div style={{ maxHeight: 320, overflowY: "auto" }}>
             <DropdownItem label={`Todas las campañas (${campanas.length})`} selected={value === "todas"} onClick={() => pick("todas")} />
             {matches.map((c) => (
               <DropdownItem key={c} label={c} selected={value === c} onClick={() => pick(c)} />
             ))}
+            {matches.length === 0 && (
+              <div className="text-muted" style={{ fontSize: 12, padding: "8px 10px" }}>Sin resultados para “{query}”.</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Multi-select de BDRs con búsqueda: elegís qué personas se ven en la vista.
+// Selección vacía = todos. José 2026-07-17.
+function BdrMultiSelect({
+  options,
+  selected,
+  onChange,
+}: {
+  options: { name: string; count: number }[];
+  selected: Set<string>;
+  onChange: (s: Set<string>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    inputRef.current?.focus();
+    function onDown(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  const matches = useMemo(
+    () => options.filter((o) => o.name.toLowerCase().includes(query.trim().toLowerCase())),
+    [options, query]
+  );
+
+  function toggle(name: string) {
+    const next = new Set(selected);
+    if (next.has(name)) next.delete(name);
+    else next.add(name);
+    onChange(next);
+  }
+
+  const isActive = selected.size > 0;
+  const label = !isActive
+    ? `Todos los BDRs (${options.length})`
+    : selected.size === 1
+    ? [...selected][0]
+    : `${selected.size} BDRs seleccionados`;
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative", display: "inline-block" }}>
+      <button onClick={() => setOpen((o) => !o)} style={filterBtnStyle(isActive)}>
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+        <span style={{ fontSize: 10 }}>▼</span>
+      </button>
+
+      {open && (
+        <div style={dropdownStyle}>
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Buscar BDR…"
+            style={searchInputStyle}
+          />
+          {isActive && (
+            <button
+              onClick={() => onChange(new Set())}
+              style={{ all: "unset", cursor: "pointer", display: "block", padding: "4px 10px 8px", fontSize: 11, fontWeight: 600, color: "var(--fg-status-info)" }}
+            >
+              Limpiar selección (ver todos)
+            </button>
+          )}
+          <div style={{ maxHeight: 320, overflowY: "auto" }}>
+            {matches.map((o) => {
+              const checked = selected.has(o.name);
+              return (
+                <button
+                  key={o.name}
+                  onClick={() => toggle(o.name)}
+                  style={{
+                    all: "unset",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 8,
+                    width: "calc(100% - 20px)",
+                    padding: "7px 10px",
+                    fontSize: 12,
+                    fontWeight: checked ? 700 : 500,
+                    borderRadius: 8,
+                    background: checked ? "var(--bg-secondary)" : "transparent",
+                    color: "var(--fg-primary)",
+                  }}
+                >
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <span
+                      style={{
+                        width: 14, height: 14, borderRadius: 4, flexShrink: 0,
+                        border: checked ? "none" : "1.5px solid var(--border-tertiary)",
+                        background: checked ? "var(--fg-primary)" : "transparent",
+                        color: "var(--bg-primary)",
+                        fontSize: 10, lineHeight: "14px", textAlign: "center", fontWeight: 700,
+                      }}
+                    >
+                      {checked ? "✓" : ""}
+                    </span>
+                    {o.name}
+                  </span>
+                  <span className="text-muted" style={{ fontSize: 11, flexShrink: 0 }}>{o.count}</span>
+                </button>
+              );
+            })}
             {matches.length === 0 && (
               <div className="text-muted" style={{ fontSize: 12, padding: "8px 10px" }}>Sin resultados para “{query}”.</div>
             )}
@@ -269,89 +376,183 @@ function FunnelRow({ label, detalle, value, total, color, bold }: {
   );
 }
 
-function BdrCard({ bdr }: { bdr: { name: string; asignadas: number; etapas: Record<EtapaKey, number>; sinProspectar: SeguimientoCompany[] } }) {
-  const [open, setOpen] = useState(false);
-  const sinBdr = bdr.name.startsWith("—");
+// Card por BDR: cada stat es clickeable y abre el detalle de SUS empresas en esa etapa
+// ("Asignadas" = todas), con stage, actividades, fecha de asignación y link a Attio.
+function BdrCard({ bdr }: { bdr: { name: string; companies: SeguimientoCompany[]; etapas: Record<EtapaKey, number> } }) {
+  // null = cerrado; "all" = todas las asignadas; EtapaKey = solo esa etapa.
+  const [drill, setDrill] = useState<"all" | EtapaKey | null>(null);
+  const sinBdr = bdr.name === SIN_BDR;
+
+  const drillCompanies = useMemo(() => {
+    if (!drill) return [];
+    const list = drill === "all" ? bdr.companies : bdr.companies.filter((c) => c.etapa_funnel === drill);
+    // Orden: etapa (según funnel) y luego fecha de asignación asc (las más viejas primero).
+    const rank = (e: EtapaKey) => ETAPAS.findIndex((x) => x.key === e);
+    return [...list].sort(
+      (a, b) => rank(a.etapa_funnel) - rank(b.etapa_funnel) || (a.bdr_assigned_at ?? "").localeCompare(b.bdr_assigned_at ?? "")
+    );
+  }, [drill, bdr.companies]);
+
+  function toggleDrill(next: "all" | EtapaKey) {
+    setDrill((cur) => (cur === next ? null : next));
+  }
+
   return (
     <div className="card">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div style={{ minWidth: 160, fontSize: 14, fontWeight: 600, color: sinBdr ? "var(--fg-status-warning)" : undefined }}>
           {bdr.name}
         </div>
-        {/* Desglose por etapa (feedback José #6) */}
-        <div style={{ display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap" }}>
-          <BdrStat value={bdr.asignadas} label="Asignadas" color="var(--fg-primary)" />
+        <div style={{ display: "flex", gap: 6, alignItems: "stretch", flexWrap: "wrap" }}>
+          <BdrStat
+            value={bdr.companies.length}
+            label="Asignadas"
+            color="var(--fg-primary)"
+            active={drill === "all"}
+            onClick={() => toggleDrill("all")}
+          />
           {ETAPAS.map((e) => (
-            <BdrStat key={e.key} value={bdr.etapas[e.key]} label={e.labelCorto} color={e.color} dimZero />
+            <BdrStat
+              key={e.key}
+              value={bdr.etapas[e.key]}
+              label={e.labelCorto}
+              color={e.color}
+              dimZero
+              active={drill === e.key}
+              onClick={() => toggleDrill(e.key)}
+            />
           ))}
-          <button
-            onClick={() => setOpen((o) => !o)}
-            disabled={bdr.sinProspectar.length === 0}
-            style={{
-              all: "unset",
-              cursor: bdr.sinProspectar.length === 0 ? "default" : "pointer",
-              fontSize: 12,
-              fontWeight: 600,
-              color: bdr.sinProspectar.length === 0 ? "var(--fg-quaternary)" : "var(--fg-status-info)",
-              minWidth: 100,
-              textAlign: "right",
-            }}
-          >
-            {bdr.sinProspectar.length === 0 ? "Al día ✓" : open ? "Ocultar ▲" : "Ver empresas ▼"}
-          </button>
         </div>
       </div>
 
-      {open && bdr.sinProspectar.length > 0 && (
+      {drill && (
         <div style={{ marginTop: 14, paddingTop: 10, borderTop: "1px solid var(--border-tertiary)" }}>
-          <div className="text-muted" style={{ fontSize: 11, marginBottom: 6 }}>
-            Empresas sin prospectar (con su fecha de asignación):
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+            <span className="text-muted" style={{ fontSize: 11 }}>
+              {drill === "all"
+                ? `Todas las empresas asignadas (${drillCompanies.length})`
+                : `${ETAPA_LABEL[drill]} · ${drillCompanies.length} empresa${drillCompanies.length === 1 ? "" : "s"}`}
+            </span>
+            <button onClick={() => setDrill(null)} style={{ all: "unset", cursor: "pointer", fontSize: 11, fontWeight: 600, color: "var(--fg-status-info)" }}>
+              Cerrar ▲
+            </button>
           </div>
-          {bdr.sinProspectar.map((c, i) => (
-            <div
-              key={`${c.attio_company_id}-${i}`}
-              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "7px 0", borderBottom: "1px solid var(--border-tertiary)" }}
-            >
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {c.company_name ?? "— sin nombre —"}
-                </div>
-                <div className="text-muted" style={{ fontSize: 10 }}>{c.campana_evento}</div>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
-                <span className="badge" style={{ background: "var(--bg-secondary)", color: "var(--fg-secondary)", fontSize: 10 }}>
-                  {c.outbound_stage ?? "sin stage"}
-                </span>
-                <span className="text-muted" style={{ fontSize: 11, whiteSpace: "nowrap" }}>
-                  {c.bdr_assigned_at
-                    ? `asignada el ${new Date(c.bdr_assigned_at).toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" })}`
-                    : "sin fecha de asignación"}
-                </span>
-                {c.attio_company_id && (
-                  <a
-                    href={attioCompanyUrl(c.attio_company_id) ?? undefined}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ fontSize: 11, color: "var(--fg-status-info)", textDecoration: "none" }}
-                  >
-                    Attio ↗
-                  </a>
-                )}
-              </div>
-            </div>
-          ))}
+          {drillCompanies.length === 0 ? (
+            <div className="text-muted" style={{ fontSize: 12, padding: 8 }}>Sin empresas en esta etapa.</div>
+          ) : (
+            drillCompanies.map((c, i) => <CompanyRow key={`${c.attio_company_id}-${c.campana_evento}-${i}`} c={c} showEtapa={drill === "all"} />)
+          )}
         </div>
       )}
     </div>
   );
 }
 
-function BdrStat({ value, label, color, dimZero }: { value: number; label: string; color: string; dimZero?: boolean }) {
-  const dim = dimZero && value === 0;
+function CompanyRow({ c, showEtapa }: { c: SeguimientoCompany; showEtapa: boolean }) {
+  const etapa = ETAPAS.find((e) => e.key === c.etapa_funnel);
   return (
-    <div style={{ textAlign: "right", opacity: dim ? 0.35 : 1 }}>
-      <div style={{ fontSize: 17, fontWeight: 700, color }}>{value}</div>
-      <div className="stat-label" style={{ whiteSpace: "nowrap" }}>{label}</div>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "7px 0", borderBottom: "1px solid var(--border-tertiary)" }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {c.company_name ?? "— sin nombre —"}
+        </div>
+        <div className="text-muted" style={{ fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {c.campana_evento}
+        </div>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
+        {showEtapa && etapa && (
+          <span className="badge" style={{ background: "var(--bg-secondary)", color: etapa.color, fontSize: 10, fontWeight: 700 }}>
+            {etapa.labelCorto}
+          </span>
+        )}
+        <span className="badge" style={{ background: "var(--bg-secondary)", color: "var(--fg-secondary)", fontSize: 10 }}>
+          {c.outbound_stage ?? "sin stage"}
+        </span>
+        <span className="text-muted" style={{ fontSize: 11, whiteSpace: "nowrap" }} title="Llamadas + WhatsApps registrados">
+          {c.actividades_prospeccion} act.{c.estructura_completa ? " ✓" : ""}
+        </span>
+        <span className="text-muted" style={{ fontSize: 11, whiteSpace: "nowrap" }}>
+          {c.bdr_assigned_at
+            ? `asig. ${new Date(c.bdr_assigned_at).toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" })}`
+            : "sin fecha"}
+        </span>
+        {c.attio_company_id && (
+          <a
+            href={attioCompanyUrl(c.attio_company_id) ?? undefined}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ fontSize: 11, color: "var(--fg-status-info)", textDecoration: "none" }}
+          >
+            Attio ↗
+          </a>
+        )}
+      </div>
     </div>
   );
 }
+
+// Stat clickeable del BDR: resalta cuando su drill está abierto.
+function BdrStat({ value, label, color, dimZero, active, onClick }: {
+  value: number; label: string; color: string; dimZero?: boolean; active?: boolean; onClick: () => void;
+}) {
+  const dim = dimZero && value === 0;
+  return (
+    <button
+      onClick={onClick}
+      title={`Ver empresas: ${label}`}
+      style={{
+        all: "unset",
+        cursor: "pointer",
+        textAlign: "right",
+        opacity: dim && !active ? 0.35 : 1,
+        padding: "4px 8px",
+        borderRadius: 8,
+        background: active ? "var(--bg-secondary)" : "transparent",
+      }}
+    >
+      <div style={{ fontSize: 17, fontWeight: 700, color }}>{value}</div>
+      <div className="stat-label" style={{ whiteSpace: "nowrap" }}>{label}</div>
+    </button>
+  );
+}
+
+const filterBtnStyle = (active: boolean): React.CSSProperties => ({
+  padding: "6px 12px",
+  fontSize: 12,
+  fontWeight: 600,
+  borderRadius: 8,
+  border: "1px solid var(--border-tertiary)",
+  background: active ? "var(--fg-primary)" : "var(--bg-primary)",
+  color: active ? "var(--bg-primary)" : "var(--fg-secondary)",
+  cursor: "pointer",
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 8,
+  maxWidth: 380,
+});
+
+const dropdownStyle: React.CSSProperties = {
+  position: "absolute",
+  top: "calc(100% + 4px)",
+  left: 0,
+  zIndex: 50,
+  width: 340,
+  background: "var(--bg-primary)",
+  border: "1px solid var(--border-tertiary)",
+  borderRadius: 12,
+  boxShadow: "0px 8px 24px rgba(9,9,11,0.12)",
+  padding: 8,
+};
+
+const searchInputStyle: React.CSSProperties = {
+  width: "calc(100% - 20px)",
+  padding: "7px 10px",
+  fontSize: 12,
+  borderRadius: 8,
+  border: "1px solid var(--border-tertiary)",
+  background: "var(--bg-secondary)",
+  color: "var(--fg-primary)",
+  outline: "none",
+  marginBottom: 6,
+};
