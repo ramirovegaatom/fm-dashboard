@@ -213,10 +213,14 @@ export type SeguimientoCompany = {
   attio_company_id: string;
   company_name: string | null;
   outbound_stage: string | null;
-  etapa_funnel: "sin_prospectar" | "siendo_prospectada" | "procesada" | "respuesta_positiva" | "otros";
+  // Iteración José 2026-07-16: etapas validadas por ACTIVIDAD real (tabla activities);
+  // 'dropoff' = Descalificada + RECYCLE; clientes (lifecycle Customer) excluidos en la vista.
+  etapa_funnel: "sin_prospectar" | "siendo_prospectada" | "procesada" | "respuesta_positiva" | "dropoff";
   assigned_bdr_id: string | null;
   assigned_bdr_name: string | null;
   bdr_assigned_at: string | null;
+  actividades_prospeccion: number; // llamadas + WhatsApps registrados (todas sus personas)
+  estructura_completa: boolean; // ≥1 contacto con 3 llamadas+2 WA o 3 WA+2 llamadas
 };
 
 export type DealDrill = {
