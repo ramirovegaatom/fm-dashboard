@@ -1,33 +1,21 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { SeguimientoCompany } from "@/lib/supabase";
-import { attioCompanyUrl } from "@/lib/attio";
+import { SIN_BDR, ETAPAS, etapaRank, CompanyRow, type EtapaKey } from "./shared";
 
 // Spec del equipo + iteraciones José (2026-07-16/17): funnel por Outbound Stage VALIDADO
 // por actividades reales, scorecard por BDR con desglose por etapa, filtro de campaña con
-// búsqueda, filtro multi-select de BDRs, y drill por etapa al clickear las stats de un BDR.
+// búsqueda, filtro multi-select de BDRs. Las stats de cada BDR abren un PREVIEW corto
+// (5 empresas); el detalle completo vive en la subpágina /seguimiento/bdr?name=…
 // "Procesada por actividad" = estructura estricta por contacto: 3 llamadas + 2 WhatsApp
 // o 3 WhatsApp + 2 llamadas. Clientes (lifecycle Customer) excluidos en la vista SQL.
-type EtapaKey = SeguimientoCompany["etapa_funnel"];
+const PREVIEW_LIMIT = 5;
 
-const SIN_BDR = "— Sin BDR asignado —";
-
-const ETAPAS: { key: EtapaKey; label: string; labelCorto: string; detalle: string; color: string }[] = [
-  { key: "sin_prospectar", label: "Sin prospectar", labelCorto: "Sin prospectar", detalle: "PRE-QM + sin actividad (vacío, Ready, Not Started)", color: "var(--fg-status-error)" },
-  { key: "siendo_prospectada", label: "Siendo prospectadas", labelCorto: "Prospectando", detalle: "Con contacto, Procesando, o con actividades iniciadas", color: "var(--fg-status-info)" },
-  { key: "procesada", label: "Procesadas", labelCorto: "Procesadas", detalle: "Lost + procesada por actividad (3 llamadas + 2 WhatsApp o 3 WhatsApp + 2 llamadas por contacto)", color: "var(--fg-secondary)" },
-  { key: "respuesta_positiva", label: "Respuesta positiva", labelCorto: "Resp. positiva", detalle: "QM Agendada, QM Show, QM No Show", color: "var(--fg-status-success)" },
-  { key: "dropoff", label: "DropOff", labelCorto: "DropOff", detalle: "Descalificadas (no ICP) + Recycle", color: "var(--fg-status-warning)" },
-];
-
-const ETAPA_LABEL: Record<EtapaKey, string> = {
-  sin_prospectar: "Sin prospectar",
-  siendo_prospectada: "Prospectando",
-  procesada: "Procesada",
-  respuesta_positiva: "Resp. positiva",
-  dropoff: "DropOff",
-};
+function bdrDetailHref(name: string) {
+  return `/seguimiento/bdr?name=${encodeURIComponent(name)}`;
+}
 
 export function SeguimientoClient({ companies }: { companies: SeguimientoCompany[] }) {
   const [campana, setCampana] = useState<string>("todas");
@@ -376,20 +364,20 @@ function FunnelRow({ label, detalle, value, total, color, bold }: {
   );
 }
 
-// Card por BDR: cada stat es clickeable y abre el detalle de SUS empresas en esa etapa
-// ("Asignadas" = todas), con stage, actividades, fecha de asignación y link a Attio.
+// Card por BDR: cada stat es clickeable y abre un PREVIEW (5 empresas) de esa etapa.
+// El nombre y el preview linkean a la subpágina de detalle de la persona.
 function BdrCard({ bdr }: { bdr: { name: string; companies: SeguimientoCompany[]; etapas: Record<EtapaKey, number> } }) {
   // null = cerrado; "all" = todas las asignadas; EtapaKey = solo esa etapa.
   const [drill, setDrill] = useState<"all" | EtapaKey | null>(null);
   const sinBdr = bdr.name === SIN_BDR;
+  const href = bdrDetailHref(bdr.name);
 
   const drillCompanies = useMemo(() => {
     if (!drill) return [];
     const list = drill === "all" ? bdr.companies : bdr.companies.filter((c) => c.etapa_funnel === drill);
     // Orden: etapa (según funnel) y luego fecha de asignación asc (las más viejas primero).
-    const rank = (e: EtapaKey) => ETAPAS.findIndex((x) => x.key === e);
     return [...list].sort(
-      (a, b) => rank(a.etapa_funnel) - rank(b.etapa_funnel) || (a.bdr_assigned_at ?? "").localeCompare(b.bdr_assigned_at ?? "")
+      (a, b) => etapaRank(a.etapa_funnel) - etapaRank(b.etapa_funnel) || (a.bdr_assigned_at ?? "").localeCompare(b.bdr_assigned_at ?? "")
     );
   }, [drill, bdr.companies]);
 
@@ -397,12 +385,26 @@ function BdrCard({ bdr }: { bdr: { name: string; companies: SeguimientoCompany[]
     setDrill((cur) => (cur === next ? null : next));
   }
 
+  const drillLabel = drill && drill !== "all" ? ETAPAS.find((e) => e.key === drill)?.labelCorto : null;
+  const preview = drillCompanies.slice(0, PREVIEW_LIMIT);
+  const restantes = drillCompanies.length - preview.length;
+
   return (
     <div className="card">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-        <div style={{ minWidth: 160, fontSize: 14, fontWeight: 600, color: sinBdr ? "var(--fg-status-warning)" : undefined }}>
-          {bdr.name}
-        </div>
+        <Link
+          href={href}
+          style={{
+            minWidth: 160,
+            fontSize: 14,
+            fontWeight: 600,
+            color: sinBdr ? "var(--fg-status-warning)" : "inherit",
+            textDecoration: "none",
+          }}
+          title="Ver el detalle completo de esta persona"
+        >
+          {bdr.name} <span style={{ color: "var(--fg-quaternary)", fontSize: 12 }}>→</span>
+        </Link>
         <div style={{ display: "flex", gap: 6, alignItems: "stretch", flexWrap: "wrap" }}>
           <BdrStat
             value={bdr.companies.length}
@@ -430,64 +432,25 @@ function BdrCard({ bdr }: { bdr: { name: string; companies: SeguimientoCompany[]
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
             <span className="text-muted" style={{ fontSize: 11 }}>
               {drill === "all"
-                ? `Todas las empresas asignadas (${drillCompanies.length})`
-                : `${ETAPA_LABEL[drill]} · ${drillCompanies.length} empresa${drillCompanies.length === 1 ? "" : "s"}`}
+                ? `Preview · ${drillCompanies.length} empresa${drillCompanies.length === 1 ? "" : "s"} asignada${drillCompanies.length === 1 ? "" : "s"}`
+                : `Preview · ${drillLabel} · ${drillCompanies.length} empresa${drillCompanies.length === 1 ? "" : "s"}`}
             </span>
             <button onClick={() => setDrill(null)} style={{ all: "unset", cursor: "pointer", fontSize: 11, fontWeight: 600, color: "var(--fg-status-info)" }}>
               Cerrar ▲
             </button>
           </div>
-          {drillCompanies.length === 0 ? (
+          {preview.length === 0 ? (
             <div className="text-muted" style={{ fontSize: 12, padding: 8 }}>Sin empresas en esta etapa.</div>
           ) : (
-            drillCompanies.map((c, i) => <CompanyRow key={`${c.attio_company_id}-${c.campana_evento}-${i}`} c={c} showEtapa={drill === "all"} />)
+            preview.map((c, i) => <CompanyRow key={`${c.attio_company_id}-${c.campana_evento}-${i}`} c={c} showEtapa={drill === "all"} />)
           )}
+          <div style={{ paddingTop: 10 }}>
+            <Link href={href} style={{ fontSize: 12, fontWeight: 600, color: "var(--fg-status-brand)", textDecoration: "none" }}>
+              {restantes > 0 ? `Ver las ${drillCompanies.length} en el detalle de ${bdr.name} →` : `Ver detalle completo de ${bdr.name} →`}
+            </Link>
+          </div>
         </div>
       )}
-    </div>
-  );
-}
-
-function CompanyRow({ c, showEtapa }: { c: SeguimientoCompany; showEtapa: boolean }) {
-  const etapa = ETAPAS.find((e) => e.key === c.etapa_funnel);
-  return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "7px 0", borderBottom: "1px solid var(--border-tertiary)" }}>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {c.company_name ?? "— sin nombre —"}
-        </div>
-        <div className="text-muted" style={{ fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {c.campana_evento}
-        </div>
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
-        {showEtapa && etapa && (
-          <span className="badge" style={{ background: "var(--bg-secondary)", color: etapa.color, fontSize: 10, fontWeight: 700 }}>
-            {etapa.labelCorto}
-          </span>
-        )}
-        <span className="badge" style={{ background: "var(--bg-secondary)", color: "var(--fg-secondary)", fontSize: 10 }}>
-          {c.outbound_stage ?? "sin stage"}
-        </span>
-        <span className="text-muted" style={{ fontSize: 11, whiteSpace: "nowrap" }} title="Llamadas + WhatsApps registrados">
-          {c.actividades_prospeccion} act.{c.estructura_completa ? " ✓" : ""}
-        </span>
-        <span className="text-muted" style={{ fontSize: 11, whiteSpace: "nowrap" }}>
-          {c.bdr_assigned_at
-            ? `asig. ${new Date(c.bdr_assigned_at).toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" })}`
-            : "sin fecha"}
-        </span>
-        {c.attio_company_id && (
-          <a
-            href={attioCompanyUrl(c.attio_company_id) ?? undefined}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ fontSize: 11, color: "var(--fg-status-info)", textDecoration: "none" }}
-          >
-            Attio ↗
-          </a>
-        )}
-      </div>
     </div>
   );
 }
