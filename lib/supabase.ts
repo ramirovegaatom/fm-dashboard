@@ -240,4 +240,8 @@ export type DealDrill = {
   toco_negociacion: boolean;
   toco_won: boolean;
   toco_lost: boolean;
+  // true si el deal está taggeado con la campaña del evento (José 2026-07-17:
+  // Demo/Revisión/Negociación cuentan SOLO estos; la heurística asistió+fecha+origen
+  // queda solo para Won/Lost/QM Agendada).
+  por_tag: boolean;
 };

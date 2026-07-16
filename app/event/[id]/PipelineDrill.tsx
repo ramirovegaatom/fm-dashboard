@@ -59,8 +59,9 @@ const METRIC_LABELS: Record<Metric, string> = {
   qm_no_show: "QM No Show",
 };
 
+// 2026-07-17 (José): qm_asistida dejó de ser métrica de deals — ahora son EMPRESAS
+// con tag campaña + outbound_stage QM SHOW (ver QM_COMPANY_METRICS).
 const DEAL_METRICS = new Set<Metric>([
-  "qm_asistida",
   "demo",
   "revision_interna",
   "negociacion",
@@ -96,6 +97,7 @@ function filterQmCompanies(companies: CompanyDrill[], m: Metric): CompanyDrill[]
     case "qm_fm":
       return companies; // la vista ya trae solo QM AGENDADA/SHOW/NO SHOW
     case "qm_show":
+    case "qm_asistida": // José 2026-07-17: QM Asistida = empresas con tag + QM SHOW
       return companies.filter((c) => c.outbound_stage === "QM SHOW");
     case "qm_no_show":
       return companies.filter((c) => c.outbound_stage === "QM NO SHOW");
@@ -114,20 +116,22 @@ const QM_COMPANY_METRICS = new Set<Metric>([
   "qm_no_show",
   "qm_generada",
   "qm_influenciada",
+  "qm_asistida",
 ]);
 
 function filterDeals(deals: DealDrill[], m: Metric): DealDrill[] {
   // 2026-05-06: switch a flags de traza (toco_*) — un deal que pasó por QM
   // pero ya está en Demo/Won/Lost también cuenta como QM Asistida.
+  // 2026-07-17 (José): Demo/Revisión/Negociación cuentan solo deals atribuidos por el
+  // tag Campaña/Evento (por_tag), sin la heurística asistió+fecha+origen. Won/Lost siguen
+  // con la unión de ambas atribuciones.
   switch (m) {
-    case "qm_asistida":
-      return deals.filter((d) => d.toco_qm_asistida);
     case "demo":
-      return deals.filter((d) => d.toco_demo);
+      return deals.filter((d) => d.toco_demo && d.por_tag);
     case "revision_interna":
-      return deals.filter((d) => d.toco_revision);
+      return deals.filter((d) => d.toco_revision && d.por_tag);
     case "negociacion":
-      return deals.filter((d) => d.toco_negociacion);
+      return deals.filter((d) => d.toco_negociacion && d.por_tag);
     case "won":
       return deals.filter((d) => d.toco_won);
     case "lost":
