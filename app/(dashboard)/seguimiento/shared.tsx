@@ -15,7 +15,9 @@ export const ETAPAS: { key: EtapaKey; label: string; labelCorto: string; detalle
   { key: "siendo_prospectada", label: "Procesando", labelCorto: "Procesando", detalle: "Con contacto, Procesando, o con actividades iniciadas", color: "var(--fg-status-info)" },
   { key: "procesada", label: "Procesada", labelCorto: "Procesada", detalle: "Lost + procesada por actividad (3 llamadas + 2 WhatsApp o 3 WhatsApp + 2 llamadas por contacto)", color: "var(--fg-secondary)" },
   { key: "respuesta_positiva", label: "Respuesta positiva", labelCorto: "Resp. positiva", detalle: "QM Agendada, QM Show, QM No Show", color: "var(--fg-status-success)" },
-  { key: "dropoff", label: "DropOff", labelCorto: "DropOff", detalle: "Descalificadas (no ICP) + Recycle", color: "var(--fg-status-warning)" },
+  { key: "dropoff", label: "DropOff", labelCorto: "DropOff", detalle: "Descalificadas (no ICP)", color: "var(--fg-status-warning)" },
+  // José 2026-07-17: Recycle separado de DropOff — no son lo mismo (vuelven al pool).
+  { key: "recycle", label: "Recycle", labelCorto: "Recycle", detalle: "empresas recicladas: vuelven al pool para re-prospección", color: "var(--fg-status-brand)" },
 ];
 
 export const etapaRank = (e: EtapaKey) => ETAPAS.findIndex((x) => x.key === e);

@@ -74,7 +74,7 @@ export function SeguimientoClient({ companies }: { companies: SeguimientoCompany
   }, [byCampana, bdrsSel]);
 
   const funnel = useMemo(() => {
-    const counts: Record<EtapaKey, number> = { sin_prospectar: 0, siendo_prospectada: 0, procesada: 0, respuesta_positiva: 0, dropoff: 0 };
+    const counts: Record<EtapaKey, number> = { sin_prospectar: 0, siendo_prospectada: 0, procesada: 0, respuesta_positiva: 0, dropoff: 0, recycle: 0 };
     for (const c of filtered) counts[c.etapa_funnel]++;
     return counts;
   }, [filtered]);
@@ -88,7 +88,7 @@ export function SeguimientoClient({ companies }: { companies: SeguimientoCompany
       const entry = map.get(key) ?? {
         name: key,
         companies: [],
-        etapas: { sin_prospectar: 0, siendo_prospectada: 0, procesada: 0, respuesta_positiva: 0, dropoff: 0 },
+        etapas: { sin_prospectar: 0, siendo_prospectada: 0, procesada: 0, respuesta_positiva: 0, dropoff: 0, recycle: 0 },
       };
       entry.companies.push(c);
       entry.etapas[c.etapa_funnel]++;

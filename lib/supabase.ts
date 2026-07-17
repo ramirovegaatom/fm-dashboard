@@ -215,7 +215,7 @@ export type SeguimientoCompany = {
   outbound_stage: string | null;
   // Iteración José 2026-07-16: etapas validadas por ACTIVIDAD real (tabla activities);
   // 'dropoff' = Descalificada + RECYCLE; clientes (lifecycle Customer) excluidos en la vista.
-  etapa_funnel: "sin_prospectar" | "siendo_prospectada" | "procesada" | "respuesta_positiva" | "dropoff";
+  etapa_funnel: "sin_prospectar" | "siendo_prospectada" | "procesada" | "respuesta_positiva" | "dropoff" | "recycle";
   assigned_bdr_id: string | null;
   assigned_bdr_name: string | null;
   bdr_assigned_at: string | null;

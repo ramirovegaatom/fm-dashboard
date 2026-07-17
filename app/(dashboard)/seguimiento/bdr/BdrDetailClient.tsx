@@ -13,7 +13,7 @@ export function BdrDetailClient({ bdrName, companies }: { bdrName: string; compa
   const [query, setQuery] = useState("");
 
   const etapaCounts = useMemo(() => {
-    const counts: Record<EtapaKey, number> = { sin_prospectar: 0, siendo_prospectada: 0, procesada: 0, respuesta_positiva: 0, dropoff: 0 };
+    const counts: Record<EtapaKey, number> = { sin_prospectar: 0, siendo_prospectada: 0, procesada: 0, respuesta_positiva: 0, dropoff: 0, recycle: 0 };
     for (const c of companies) counts[c.etapa_funnel]++;
     return counts;
   }, [companies]);
@@ -58,7 +58,7 @@ export function BdrDetailClient({ bdrName, companies }: { bdrName: string; compa
       </div>
 
       {/* Stats de la persona (pills clickeables = filtro por etapa) */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 12, margin: "18px 0 24px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 12, margin: "18px 0 24px" }}>
         <EtapaCard
           label="Asignadas"
           value={companies.length}
