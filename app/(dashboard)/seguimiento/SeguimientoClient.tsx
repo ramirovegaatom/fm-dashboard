@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { SeguimientoCompany } from "@/lib/supabase";
+import { DateFilter, type DateRange } from "@/components/DateFilter";
 import { SIN_BDR, ETAPAS, etapaRank, CompanyRow, type EtapaKey } from "./shared";
 
 // Spec del equipo + iteraciones José (2026-07-16/17): funnel por Outbound Stage VALIDADO
@@ -17,20 +18,41 @@ function bdrDetailHref(name: string) {
   return `/seguimiento/bdr?name=${encodeURIComponent(name)}`;
 }
 
+// Detalle de una etapa del funnel general (José 2026-07-17). Propaga la campaña activa.
+function etapaHref(key: EtapaKey | "todas", campana: string) {
+  const params = new URLSearchParams({ e: key });
+  if (campana !== "todas") params.set("campana", campana);
+  return `/seguimiento/etapa?${params.toString()}`;
+}
+
 export function SeguimientoClient({ companies }: { companies: SeguimientoCompany[] }) {
   const [campana, setCampana] = useState<string>("todas");
   // Multi-select de BDRs: vacío = todos (feedback José 2026-07-17).
   const [bdrsSel, setBdrsSel] = useState<Set<string>>(new Set());
+  // Filtro de fechas por fecha del EVENTO de la campaña (José: Q/mes, como en eventos).
+  const [dateRange, setDateRange] = useState<DateRange>({});
+
+  // Fecha primero: define el universo de campañas/BDRs visibles.
+  const byDate = useMemo(() => {
+    if (!dateRange.from && !dateRange.to) return companies;
+    return companies.filter((c) => {
+      if (!c.evento_fecha) return false; // campaña sin fecha mapeada: fuera del rango
+      const d = new Date(c.evento_fecha);
+      if (dateRange.from && d < dateRange.from) return false;
+      if (dateRange.to && d > dateRange.to) return false;
+      return true;
+    });
+  }, [companies, dateRange]);
 
   const campanas = useMemo(() => {
     const set = new Set<string>();
-    companies.forEach((c) => set.add(c.campana_evento));
+    byDate.forEach((c) => set.add(c.campana_evento));
     return [...set].sort();
-  }, [companies]);
+  }, [byDate]);
 
   const byCampana = useMemo(
-    () => (campana === "todas" ? companies : companies.filter((c) => c.campana_evento === campana)),
-    [companies, campana]
+    () => (campana === "todas" ? byDate : byDate.filter((c) => c.campana_evento === campana)),
+    [byDate, campana]
   );
 
   // Opciones de BDR (dentro de la campaña activa), ordenadas por asignadas desc.
@@ -92,28 +114,47 @@ export function SeguimientoClient({ companies }: { companies: SeguimientoCompany
         <strong>Customer</strong>) no se cuentan.
       </div>
 
-      {/* Filtros: campaña (búsqueda) + BDRs (multi-select) */}
+      {/* Filtros: campaña (búsqueda) + BDRs (multi-select) + fechas (Q/mes/custom) */}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 24, alignItems: "center" }}>
         <CampanaSearch campanas={campanas} value={campana} onChange={setCampana} />
         <BdrMultiSelect options={bdrOptions} selected={bdrsSel} onChange={setBdrsSel} />
+        <DateFilter value={dateRange} onChange={setDateRange} />
         <span className="text-muted" style={{ fontSize: 12 }}>
           {asignadas} empresas asignadas
           {campana !== "todas" ? " · campaña filtrada" : ""}
           {bdrsSel.size > 0 ? ` · ${bdrsSel.size} BDR${bdrsSel.size === 1 ? "" : "s"}` : ""}
+          {(dateRange.from || dateRange.to) ? " · por fecha del evento" : ""}
         </span>
       </div>
 
-      {/* Sección 1 — Funnel general */}
+      {/* Sección 1 — Funnel general (filas clickeables → detalle de la etapa) */}
       <div className="section-title">Funnel general</div>
       <div className="card" style={{ marginBottom: 32 }}>
-        <FunnelRow label="Asignadas" detalle="empresas totales según los filtros (sin clientes)" value={asignadas} total={asignadas} color="var(--fg-primary)" bold />
+        <FunnelRow
+          label="Asignadas"
+          detalle="empresas totales según los filtros (sin clientes)"
+          value={asignadas}
+          total={asignadas}
+          color="var(--fg-primary)"
+          bold
+          href={etapaHref("todas", campana)}
+        />
         {ETAPAS.map((e) => (
-          <FunnelRow key={e.key} label={e.label} detalle={e.detalle} value={funnel[e.key]} total={asignadas} color={e.color} />
+          <FunnelRow
+            key={e.key}
+            label={e.label}
+            detalle={e.detalle}
+            value={funnel[e.key]}
+            total={asignadas}
+            color={e.color}
+            href={etapaHref(e.key, campana)}
+          />
         ))}
         <div className="text-muted" style={{ fontSize: 10, marginTop: 10 }}>
-          Lost cuenta como resultado negativo dentro de “Procesadas”. El stage “Procesada” de Attio se
+          Lost cuenta como resultado negativo dentro de “Procesada”. El stage “Procesada” de Attio se
           valida contra actividad real: sin la estructura mínima de actividades, la empresa cuenta como
-          “Siendo prospectada” (o “Sin prospectar” si no tiene actividad).
+          “Procesando” (o “Sin procesar” si no tiene actividad). Con el filtro de fechas activo quedan
+          fuera las campañas sin fecha de evento mapeada. Click en una etapa para ver sus empresas.
         </div>
       </div>
 
@@ -341,14 +382,30 @@ function DropdownItem({ label, selected, onClick }: { label: string; selected: b
   );
 }
 
-function FunnelRow({ label, detalle, value, total, color, bold }: {
-  label: string; detalle: string; value: number; total: number; color: string; bold?: boolean;
+function FunnelRow({ label, detalle, value, total, color, bold, href }: {
+  label: string; detalle: string; value: number; total: number; color: string; bold?: boolean; href: string;
 }) {
   const pct = total > 0 ? Math.round((value / total) * 100) : 0;
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "9px 0", borderBottom: "1px solid var(--border-tertiary)" }}>
+    <Link
+      href={href}
+      title={`Ver empresas: ${label}`}
+      className="funnel-row-link"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 14,
+        padding: "9px 0",
+        borderBottom: "1px solid var(--border-tertiary)",
+        color: "inherit",
+        textDecoration: "none",
+        cursor: "pointer",
+      }}
+    >
       <div style={{ width: 260, flexShrink: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: bold ? 700 : 600 }}>{label}</div>
+        <div style={{ fontSize: 13, fontWeight: bold ? 700 : 600 }}>
+          {label} <span style={{ color: "var(--fg-quaternary)", fontSize: 11 }}>→</span>
+        </div>
         <div className="text-muted" style={{ fontSize: 10 }}>{detalle}</div>
       </div>
       <div style={{ flex: 1 }}>
@@ -360,7 +417,7 @@ function FunnelRow({ label, detalle, value, total, color, bold }: {
         <span style={{ fontSize: 16, fontWeight: 700, ...(bold ? {} : { color }) }}>{value}</span>
         <span className="text-muted" style={{ fontSize: 11, marginLeft: 6 }}>{pct}%</span>
       </div>
-    </div>
+    </Link>
   );
 }
 

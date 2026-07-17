@@ -221,6 +221,9 @@ export type SeguimientoCompany = {
   bdr_assigned_at: string | null;
   actividades_prospeccion: number; // llamadas + WhatsApps registrados (todas sus personas)
   estructura_completa: boolean; // ≥1 contacto con 3 llamadas+2 WA o 3 WA+2 llamadas
+  // Fecha del evento de la campaña (mapping regular o third-party); null si la campaña
+  // no está mapeada — esas filas quedan fuera cuando el filtro de fechas está activo.
+  evento_fecha: string | null;
 };
 
 export type DealDrill = {

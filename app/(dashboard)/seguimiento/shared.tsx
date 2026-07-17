@@ -8,18 +8,21 @@ export type EtapaKey = SeguimientoCompany["etapa_funnel"];
 
 export const SIN_BDR = "— Sin BDR asignado —";
 
+// Wording José 2026-07-17: Sin procesar / Procesando / Procesada (antes: Sin prospectar /
+// Siendo prospectadas / Procesadas). Las keys SQL no cambian.
 export const ETAPAS: { key: EtapaKey; label: string; labelCorto: string; detalle: string; color: string }[] = [
-  { key: "sin_prospectar", label: "Sin prospectar", labelCorto: "Sin prospectar", detalle: "PRE-QM + sin actividad (vacío, Ready, Not Started)", color: "var(--fg-status-error)" },
-  { key: "siendo_prospectada", label: "Siendo prospectadas", labelCorto: "Prospectando", detalle: "Con contacto, Procesando, o con actividades iniciadas", color: "var(--fg-status-info)" },
-  { key: "procesada", label: "Procesadas", labelCorto: "Procesadas", detalle: "Lost + procesada por actividad (3 llamadas + 2 WhatsApp o 3 WhatsApp + 2 llamadas por contacto)", color: "var(--fg-secondary)" },
+  { key: "sin_prospectar", label: "Sin procesar", labelCorto: "Sin procesar", detalle: "PRE-QM + sin actividad (vacío, Ready, Not Started)", color: "var(--fg-status-error)" },
+  { key: "siendo_prospectada", label: "Procesando", labelCorto: "Procesando", detalle: "Con contacto, Procesando, o con actividades iniciadas", color: "var(--fg-status-info)" },
+  { key: "procesada", label: "Procesada", labelCorto: "Procesada", detalle: "Lost + procesada por actividad (3 llamadas + 2 WhatsApp o 3 WhatsApp + 2 llamadas por contacto)", color: "var(--fg-secondary)" },
   { key: "respuesta_positiva", label: "Respuesta positiva", labelCorto: "Resp. positiva", detalle: "QM Agendada, QM Show, QM No Show", color: "var(--fg-status-success)" },
   { key: "dropoff", label: "DropOff", labelCorto: "DropOff", detalle: "Descalificadas (no ICP) + Recycle", color: "var(--fg-status-warning)" },
 ];
 
 export const etapaRank = (e: EtapaKey) => ETAPAS.findIndex((x) => x.key === e);
 
-// Fila de empresa: etapa (opcional), outbound stage, actividades, fecha de asignación, Attio.
-export function CompanyRow({ c, showEtapa }: { c: SeguimientoCompany; showEtapa: boolean }) {
+// Fila de empresa: etapa (opcional), BDR (opcional), outbound stage, actividades,
+// fecha de asignación, Attio.
+export function CompanyRow({ c, showEtapa, showBdr }: { c: SeguimientoCompany; showEtapa: boolean; showBdr?: boolean }) {
   const etapa = ETAPAS.find((e) => e.key === c.etapa_funnel);
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "7px 0", borderBottom: "1px solid var(--border-tertiary)" }}>
@@ -28,7 +31,7 @@ export function CompanyRow({ c, showEtapa }: { c: SeguimientoCompany; showEtapa:
           {c.company_name ?? "— sin nombre —"}
         </div>
         <div className="text-muted" style={{ fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {c.campana_evento}
+          {showBdr ? `${c.assigned_bdr_name ?? "Sin BDR asignado"} · ` : ""}{c.campana_evento}
         </div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end" }}>
