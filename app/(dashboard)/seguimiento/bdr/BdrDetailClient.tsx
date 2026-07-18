@@ -3,14 +3,35 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { SeguimientoCompany } from "@/lib/supabase";
-import { SIN_BDR, ETAPAS, etapaRank, CompanyRow, type EtapaKey } from "../shared";
+import { SIN_BDR, ETAPAS, etapaRank, CompanyRow, ReassignBar, type EtapaKey } from "../shared";
 
 // Detalle de UNA persona (BDR): stats propias + todas sus empresas, filtrables por
-// etapa (pills), por campaña y por nombre. José 2026-07-17.
-export function BdrDetailClient({ bdrName, companies }: { bdrName: string; companies: SeguimientoCompany[] }) {
+// etapa (pills), por campaña y por nombre. José 2026-07-17. + Reasignación en bulk
+// del Assigned BDR a otra persona (Stefany 2026-07-17).
+export function BdrDetailClient({ bdrName, companies, bdrOptions }: {
+  bdrName: string;
+  companies: SeguimientoCompany[];
+  bdrOptions: { id: string; name: string }[];
+}) {
   const [etapa, setEtapa] = useState<EtapaKey | "todas">("todas");
   const [campana, setCampana] = useState<string>("todas");
   const [query, setQuery] = useState("");
+  const [sel, setSel] = useState<Set<string>>(new Set());
+
+  // Destinos: todos los BDRs menos esta misma persona.
+  const destinos = useMemo(
+    () => bdrOptions.filter((b) => b.name !== bdrName),
+    [bdrOptions, bdrName]
+  );
+
+  function toggleSel(companyId: string) {
+    setSel((prev) => {
+      const next = new Set(prev);
+      if (next.has(companyId)) next.delete(companyId);
+      else next.add(companyId);
+      return next;
+    });
+  }
 
   const etapaCounts = useMemo(() => {
     const counts: Record<EtapaKey, number> = { sin_prospectar: 0, siendo_prospectada: 0, procesada: 0, respuesta_positiva: 0, dropoff: 0, recycle: 0 };
@@ -117,10 +138,21 @@ export function BdrDetailClient({ bdrName, companies }: { bdrName: string; compa
       </div>
 
       {/* Empresas */}
-      <div className="section-title">
-        Empresas ({filtered.length}
-        {etapa !== "todas" ? ` · ${ETAPAS.find((e) => e.key === etapa)?.labelCorto}` : ""})
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div className="section-title" style={{ marginBottom: 8 }}>
+          Empresas ({filtered.length}
+          {etapa !== "todas" ? ` · ${ETAPAS.find((e) => e.key === etapa)?.labelCorto}` : ""})
+        </div>
+        {filtered.length > 0 && (
+          <button
+            onClick={() => setSel(new Set(filtered.map((c) => c.attio_company_id)))}
+            style={{ all: "unset", cursor: "pointer", fontSize: 11, fontWeight: 600, color: "var(--fg-status-info)", marginBottom: 8 }}
+          >
+            Seleccionar las {filtered.length} filtradas
+          </button>
+        )}
       </div>
+      <ReassignBar selected={sel} bdrOptions={destinos} onClear={() => setSel(new Set())} />
       <div className="card">
         {filtered.length === 0 ? (
           <div className="text-muted" style={{ fontSize: 13, padding: 20, textAlign: "center" }}>
@@ -128,9 +160,19 @@ export function BdrDetailClient({ bdrName, companies }: { bdrName: string; compa
           </div>
         ) : (
           filtered.map((c, i) => (
-            <CompanyRow key={`${c.attio_company_id}-${c.campana_evento}-${i}`} c={c} showEtapa={etapa === "todas"} />
+            <CompanyRow
+              key={`${c.attio_company_id}-${c.campana_evento}-${i}`}
+              c={c}
+              showEtapa={etapa === "todas"}
+              selected={sel.has(c.attio_company_id)}
+              onToggleSelect={() => toggleSel(c.attio_company_id)}
+            />
           ))
         )}
+      </div>
+      <div className="text-muted" style={{ fontSize: 10, marginTop: 8 }}>
+        Seleccioná empresas con el checkbox para reasignarlas a otro BDR — el cambio se escribe en
+        Attio (campo Assigned BDR) y se refleja acá al instante.
       </div>
       {sinBdr && (
         <div className="text-muted" style={{ fontSize: 11, marginTop: 10 }}>

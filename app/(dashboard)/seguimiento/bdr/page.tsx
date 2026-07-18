@@ -34,5 +34,20 @@ export default async function BdrDetailPage({ searchParams }: { searchParams: Pr
     if (rows.length < PAGE) break;
   }
 
-  return <BdrDetailClient bdrName={bdrName} companies={all} />;
+  // Lista completa de BDRs (destinos posibles de la reasignación) — las empresas de esta
+  // página son de UN solo BDR, así que los destinos salen de toda la vista.
+  const bdrPairs: { id: string; name: string }[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data } = await supabase
+      .from("fm_seguimiento_companies")
+      .select("assigned_bdr_id, assigned_bdr_name")
+      .not("assigned_bdr_id", "is", null)
+      .range(from, from + PAGE - 1);
+    const rows = (data ?? []) as { assigned_bdr_id: string; assigned_bdr_name: string | null }[];
+    for (const r of rows) bdrPairs.push({ id: r.assigned_bdr_id, name: r.assigned_bdr_name ?? r.assigned_bdr_id });
+    if (rows.length < PAGE) break;
+  }
+  const bdrOptions = [...new Map(bdrPairs.map((b) => [b.id, b])).values()].sort((a, b) => a.name.localeCompare(b.name));
+
+  return <BdrDetailClient bdrName={bdrName} companies={all} bdrOptions={bdrOptions} />;
 }
