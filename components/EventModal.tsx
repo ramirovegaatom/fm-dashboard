@@ -160,6 +160,19 @@ export function EventModal({
             <span style={{ fontWeight: 600 }}>{ev.pais}</span>
           </div>
         )}
+        {ev.csat != null && (
+          <div title="CSAT del evento (encuesta Luma) · meta ≥ 4.5 · editable en el detalle">
+            <span className="text-muted">CSAT: </span>
+            <span
+              style={{
+                fontWeight: 700,
+                color: Number(ev.csat) >= 4.5 ? "var(--fg-status-success)" : Number(ev.csat) >= 3 ? "var(--fg-status-warning)" : "var(--fg-status-error)",
+              }}
+            >
+              ★ {Number(ev.csat)} / 5
+            </span>
+          </div>
+        )}
         <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
           <span className="text-muted">Partner: </span>
           <select
