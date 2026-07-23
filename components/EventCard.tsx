@@ -97,7 +97,9 @@ export function EventCard({
                 {partner}
               </span>
             )}
-            {/* CSAT siempre visible (Ramiro 2026-07-23): gris = sin cargar todavía */}
+            {/* CSAT siempre visible (Ramiro 2026-07-23): gris = sin cargar todavía.
+                Third Party no muestra el badge: no se les mide satisfacción (sin encuesta Luma). */}
+            {event.evento_tipo !== "Third Party" && (
             <span
               className="badge"
               title={
@@ -120,6 +122,7 @@ export function EventCard({
             >
               {event.csat != null ? `★ ${Number(event.csat)}` : "☆ —"}
             </span>
+            )}
             <span className="text-muted" style={{ fontSize: 12 }}>
               {formatDate(event.evento_fecha)}
             </span>
