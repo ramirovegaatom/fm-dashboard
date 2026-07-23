@@ -225,6 +225,10 @@ export type SeguimientoCompany = {
   // Fecha del evento de la campaña (mapping regular o third-party); null si la campaña
   // no está mapeada — esas filas quedan fuera cuando el filtro de fechas está activo.
   evento_fecha: string | null;
+  // 2026-07-23 (Ramiro): Attio dice "Procesada" pero las actividades no lo respaldan
+  // (sin estructura completa). La fuente de verdad de las etapas son las actividades;
+  // este flag alerta la discrepancia para corregirla en Attio o completar el trabajo.
+  procesada_sin_actividades: boolean;
 };
 
 export type DealDrill = {

@@ -185,10 +185,13 @@ export function SeguimientoClient({ companies }: { companies: SeguimientoCompany
           />
         ))}
         <div className="text-muted" style={{ fontSize: 10, marginTop: 10 }}>
-          “Procesada” refleja el Outbound Stage de Attio (Procesada o Lost) o la estructura completa de
-          actividades; Lost cuenta como resultado negativo dentro de “Procesada”. La validación por
-          actividad real se ve por empresa (“N act. ✓”). Con el filtro de fechas activo quedan fuera
-          las campañas sin fecha de evento mapeada. Click en una etapa para ver sus empresas.
+          La fuente de verdad de “Sin procesar / Procesando / Procesada” son las <strong>actividades
+          reales</strong> (llamadas y WhatsApp por contacto), no el stage manual de Attio. Lost cuenta
+          como resultado negativo dentro de “Procesada”. Las empresas marcadas “Procesada” en Attio sin
+          la estructura de actividades aparecen en su etapa real con la alerta{" "}
+          <span style={{ color: "var(--fg-status-warning)", fontWeight: 700 }}>⚠ sin actividades</span>.
+          Con el filtro de fechas activo quedan fuera las campañas sin fecha de evento mapeada. Click en
+          una etapa para ver sus empresas.
         </div>
       </div>
 

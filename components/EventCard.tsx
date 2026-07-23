@@ -97,19 +97,29 @@ export function EventCard({
                 {partner}
               </span>
             )}
-            {event.csat != null && (
-              <span
-                className="badge"
-                title={`CSAT del evento (encuesta Luma): ${Number(event.csat)} / 5 · meta ≥ 4.5`}
-                style={{
-                  background: "var(--bg-secondary)",
-                  color: Number(event.csat) >= 4.5 ? "var(--fg-status-success)" : Number(event.csat) >= 3 ? "var(--fg-status-warning)" : "var(--fg-status-error)",
-                  fontWeight: 700,
-                }}
-              >
-                ★ {Number(event.csat)}
-              </span>
-            )}
+            {/* CSAT siempre visible (Ramiro 2026-07-23): gris = sin cargar todavía */}
+            <span
+              className="badge"
+              title={
+                event.csat != null
+                  ? `CSAT del evento (encuesta Luma): ${Number(event.csat)} / 5 · meta ≥ 4.5`
+                  : "CSAT sin cargar — se completa en el detalle del evento (encuesta Luma, 1–5)"
+              }
+              style={{
+                background: "var(--bg-secondary)",
+                color:
+                  event.csat == null
+                    ? "var(--fg-quaternary)"
+                    : Number(event.csat) >= 4.5
+                    ? "var(--fg-status-success)"
+                    : Number(event.csat) >= 3
+                    ? "var(--fg-status-warning)"
+                    : "var(--fg-status-error)",
+                fontWeight: 700,
+              }}
+            >
+              {event.csat != null ? `★ ${Number(event.csat)}` : "☆ —"}
+            </span>
             <span className="text-muted" style={{ fontSize: 12 }}>
               {formatDate(event.evento_fecha)}
             </span>

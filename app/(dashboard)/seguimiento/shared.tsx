@@ -16,10 +16,10 @@ export const SIN_BDR = "— Sin BDR asignado —";
 export const ETAPAS: { key: EtapaKey; label: string; labelCorto: string; detalle: string; color: string }[] = [
   { key: "sin_prospectar", label: "Sin procesar", labelCorto: "Sin procesar", detalle: "PRE-QM + sin actividad (vacío, Ready, Not Started)", color: "var(--fg-status-error)" },
   { key: "siendo_prospectada", label: "Procesando", labelCorto: "Procesando", detalle: "Con contacto, Procesando, o con actividades iniciadas", color: "var(--fg-status-info)" },
-  // 2026-07-23 (Camilo/José): el stage "Procesada" de Attio cuenta como procesada aunque no
-  // tenga actividades registradas (antes solo Lost o estructura completa). La validación por
-  // actividad sigue visible por empresa ("N act. ✓").
-  { key: "procesada", label: "Procesada", labelCorto: "Procesada", detalle: "Procesada o Lost en Attio, o procesada por actividad (3 llamadas + 2 WhatsApp por contacto)", color: "var(--fg-secondary)" },
+  // 2026-07-23 (Ramiro): la fuente de verdad de estas etapas son las ACTIVIDADES, no el
+  // stage manual de Attio. Una empresa "Procesada" en Attio sin la estructura de actividades
+  // NO cuenta como procesada — se muestra con la alerta ⚠ (procesada_sin_actividades).
+  { key: "procesada", label: "Procesada", labelCorto: "Procesada", detalle: "Lost + procesada por actividad (3 llamadas + 2 WhatsApp o 3 WhatsApp + 2 llamadas por contacto)", color: "var(--fg-secondary)" },
   { key: "respuesta_positiva", label: "Respuesta positiva", labelCorto: "Resp. positiva", detalle: "QM Agendada, QM Show, QM No Show", color: "var(--fg-status-success)" },
   { key: "dropoff", label: "DropOff", labelCorto: "DropOff", detalle: "Descalificadas (no ICP)", color: "var(--fg-status-warning)" },
   // José 2026-07-17: Recycle separado de DropOff — no son lo mismo (vuelven al pool).
@@ -66,6 +66,15 @@ export function CompanyRow({ c, showEtapa, showBdr, selected, onToggleSelect }: 
         <span className="badge" style={{ background: "var(--bg-secondary)", color: "var(--fg-secondary)", fontSize: 10 }}>
           {c.outbound_stage ?? "sin stage"}
         </span>
+        {c.procesada_sin_actividades && (
+          <span
+            className="badge"
+            title={`Marcada "Procesada" en Attio pero sin las actividades correspondientes (tiene ${c.actividades_prospeccion}; la estructura mínima es 3 llamadas + 2 WhatsApp por contacto). La fuente de verdad son las actividades: acá cuenta en su etapa real.`}
+            style={{ background: "var(--bg-status-warning, var(--bg-secondary))", color: "var(--fg-status-warning)", fontSize: 10, fontWeight: 700, cursor: "help" }}
+          >
+            ⚠ sin actividades
+          </span>
+        )}
         <span className="text-muted" style={{ fontSize: 11, whiteSpace: "nowrap" }} title="Llamadas + WhatsApps registrados">
           {c.actividades_prospeccion} act.{c.estructura_completa ? " ✓" : ""}
         </span>
