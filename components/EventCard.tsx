@@ -97,6 +97,19 @@ export function EventCard({
                 {partner}
               </span>
             )}
+            {event.csat != null && (
+              <span
+                className="badge"
+                title={`CSAT del evento (encuesta Luma): ${Number(event.csat)} / 5 · meta ≥ 4.5`}
+                style={{
+                  background: "var(--bg-secondary)",
+                  color: Number(event.csat) >= 4.5 ? "var(--fg-status-success)" : Number(event.csat) >= 3 ? "var(--fg-status-warning)" : "var(--fg-status-error)",
+                  fontWeight: 700,
+                }}
+              >
+                ★ {Number(event.csat)}
+              </span>
+            )}
             <span className="text-muted" style={{ fontSize: 12 }}>
               {formatDate(event.evento_fecha)}
             </span>

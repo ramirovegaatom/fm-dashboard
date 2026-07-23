@@ -33,6 +33,25 @@ export async function saveEventCost(eventId: string, amount: number) {
   return { success: true };
 }
 
+// 2026-07-23 (Camilo/José): CSAT del evento (encuesta de satisfacción de Luma), 1-5 con
+// decimales (meta ≥4.5). Carga manual; null = borrar. Fase 2: automatizar desde Luma API.
+export async function saveCsat(eventId: string, value: number | null) {
+  if (value !== null && (Number.isNaN(value) || value < 1 || value > 5)) {
+    throw new Error("CSAT inválido: debe estar entre 1 y 5");
+  }
+  const { error } = await supabase
+    .from("fm_event_metadata")
+    .upsert(
+      { luma_event_id: eventId, csat: value, updated_at: new Date().toISOString() },
+      { onConflict: "luma_event_id" }
+    );
+
+  if (error) throw new Error(error.message);
+  revalidatePath("/");
+  revalidatePath(`/event/${eventId}`);
+  return { success: true };
+}
+
 export async function saveTerritory(eventId: string, pais: string, territorio: "Norte" | "Sur" | "Brasil") {
   const { error } = await supabase
     .from("fm_event_metadata")

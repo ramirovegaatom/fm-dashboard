@@ -81,6 +81,11 @@ export function SeguimientoClient({ companies }: { companies: SeguimientoCompany
 
   const asignadas = filtered.length;
 
+  // 2026-07-23 (Camilo): empresas con campaña de evento pero SIN BDR asignado — el pool sin
+  // dueño puede pasar desapercibido (error humano al cargar). Banner con acceso directo a
+  // asignarles BDR. Respeta campaña/fecha pero ignora el multi-select de BDRs.
+  const sinAsignar = useMemo(() => byCampana.filter((c) => !c.assigned_bdr_name).length, [byCampana]);
+
   const bdrs = useMemo(() => {
     const map = new Map<string, { name: string; companies: SeguimientoCompany[]; etapas: Record<EtapaKey, number> }>();
     for (const c of filtered) {
@@ -127,6 +132,35 @@ export function SeguimientoClient({ companies }: { companies: SeguimientoCompany
         </span>
       </div>
 
+      {/* Alerta: pool sin BDR asignado (Camilo 2026-07-23) */}
+      {sinAsignar > 0 && (
+        <Link
+          href={bdrDetailHref(SIN_BDR)}
+          className="card"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            marginBottom: 20,
+            border: "1px solid var(--fg-status-warning)",
+            background: "var(--bg-status-warning, var(--bg-secondary))",
+            textDecoration: "none",
+            color: "inherit",
+          }}
+        >
+          <span style={{ fontSize: 13 }}>
+            ⚠ <strong>{sinAsignar} empresa{sinAsignar === 1 ? "" : "s"} sin BDR asignado</strong>
+            <span className="text-muted" style={{ fontSize: 11, marginLeft: 8 }}>
+              tienen campaña de evento pero el campo Assigned BDR está vacío en Attio
+            </span>
+          </span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: "var(--fg-status-warning)", whiteSpace: "nowrap" }}>
+            Asignar BDR →
+          </span>
+        </Link>
+      )}
+
       {/* Sección 1 — Funnel general (filas clickeables → detalle de la etapa) */}
       <div className="section-title">Funnel general</div>
       <div className="card" style={{ marginBottom: 32 }}>
@@ -151,10 +185,10 @@ export function SeguimientoClient({ companies }: { companies: SeguimientoCompany
           />
         ))}
         <div className="text-muted" style={{ fontSize: 10, marginTop: 10 }}>
-          Lost cuenta como resultado negativo dentro de “Procesada”. El stage “Procesada” de Attio se
-          valida contra actividad real: sin la estructura mínima de actividades, la empresa cuenta como
-          “Procesando” (o “Sin procesar” si no tiene actividad). Con el filtro de fechas activo quedan
-          fuera las campañas sin fecha de evento mapeada. Click en una etapa para ver sus empresas.
+          “Procesada” refleja el Outbound Stage de Attio (Procesada o Lost) o la estructura completa de
+          actividades; Lost cuenta como resultado negativo dentro de “Procesada”. La validación por
+          actividad real se ve por empresa (“N act. ✓”). Con el filtro de fechas activo quedan fuera
+          las campañas sin fecha de evento mapeada. Click en una etapa para ver sus empresas.
         </div>
       </div>
 

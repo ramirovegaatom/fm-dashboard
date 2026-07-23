@@ -152,7 +152,7 @@ export function BdrDetailClient({ bdrName, companies, bdrOptions }: {
           </button>
         )}
       </div>
-      <ReassignBar selected={sel} bdrOptions={destinos} onClear={() => setSel(new Set())} />
+      <ReassignBar selected={sel} bdrOptions={destinos} onClear={() => setSel(new Set())} assign={sinBdr} />
       <div className="card">
         {filtered.length === 0 ? (
           <div className="text-muted" style={{ fontSize: 13, padding: 20, textAlign: "center" }}>
@@ -171,8 +171,8 @@ export function BdrDetailClient({ bdrName, companies, bdrOptions }: {
         )}
       </div>
       <div className="text-muted" style={{ fontSize: 10, marginTop: 8 }}>
-        Seleccioná empresas con el checkbox para reasignarlas a otro BDR — el cambio se escribe en
-        Attio (campo Assigned BDR) y se refleja acá al instante.
+        Seleccioná empresas con el checkbox para {sinBdr ? "asignarles un BDR" : "reasignarlas a otro BDR"} — el
+        cambio se escribe en Attio (campo Assigned BDR) y se refleja acá al instante.
       </div>
       {sinBdr && (
         <div className="text-muted" style={{ fontSize: 11, marginTop: 10 }}>

@@ -16,7 +16,10 @@ export const SIN_BDR = "— Sin BDR asignado —";
 export const ETAPAS: { key: EtapaKey; label: string; labelCorto: string; detalle: string; color: string }[] = [
   { key: "sin_prospectar", label: "Sin procesar", labelCorto: "Sin procesar", detalle: "PRE-QM + sin actividad (vacío, Ready, Not Started)", color: "var(--fg-status-error)" },
   { key: "siendo_prospectada", label: "Procesando", labelCorto: "Procesando", detalle: "Con contacto, Procesando, o con actividades iniciadas", color: "var(--fg-status-info)" },
-  { key: "procesada", label: "Procesada", labelCorto: "Procesada", detalle: "Lost + procesada por actividad (3 llamadas + 2 WhatsApp o 3 WhatsApp + 2 llamadas por contacto)", color: "var(--fg-secondary)" },
+  // 2026-07-23 (Camilo/José): el stage "Procesada" de Attio cuenta como procesada aunque no
+  // tenga actividades registradas (antes solo Lost o estructura completa). La validación por
+  // actividad sigue visible por empresa ("N act. ✓").
+  { key: "procesada", label: "Procesada", labelCorto: "Procesada", detalle: "Procesada o Lost en Attio, o procesada por actividad (3 llamadas + 2 WhatsApp por contacto)", color: "var(--fg-secondary)" },
   { key: "respuesta_positiva", label: "Respuesta positiva", labelCorto: "Resp. positiva", detalle: "QM Agendada, QM Show, QM No Show", color: "var(--fg-status-success)" },
   { key: "dropoff", label: "DropOff", labelCorto: "DropOff", detalle: "Descalificadas (no ICP)", color: "var(--fg-status-warning)" },
   // José 2026-07-17: Recycle separado de DropOff — no son lo mismo (vuelven al pool).
@@ -88,14 +91,19 @@ export function CompanyRow({ c, showEtapa, showBdr, selected, onToggleSelect }: 
 
 // Barra de reasignación en bulk (Stefany/José 2026-07-17): con N empresas seleccionadas,
 // elegís el BDR destino y escribe el Assigned BDR en Attio (vía edge fn) + reflejo local.
+// assign=true (2026-07-23, Camilo): modo "asignar" para el pool sin BDR — mismo flujo,
+// wording distinto. Si hay errores, se muestra el primero (antes solo el conteo y el
+// diagnóstico era a ciegas — lección del 403 por token read-only).
 export function ReassignBar({
   selected,
   bdrOptions,
   onClear,
+  assign,
 }: {
   selected: Set<string>;
   bdrOptions: { id: string; name: string }[];
   onClear: () => void;
+  assign?: boolean;
 }) {
   const router = useRouter();
   const [bdrId, setBdrId] = useState("");
@@ -103,22 +111,26 @@ export function ReassignBar({
   const [isPending, startTransition] = useTransition();
 
   if (selected.size === 0 && !msg) return null;
+  const verbo = assign ? "Asignar" : "Reasignar";
 
   function handleReassign() {
     const target = bdrOptions.find((b) => b.id === bdrId);
     if (!target) return;
-    if (!confirm(`¿Reasignar ${selected.size} empresa${selected.size === 1 ? "" : "s"} a ${target.name}?\n\nEsto actualiza el campo Assigned BDR en Attio.`)) return;
+    if (!confirm(`¿${verbo} ${selected.size} empresa${selected.size === 1 ? "" : "s"} a ${target.name}?\n\nEsto actualiza el campo Assigned BDR en Attio.`)) return;
     startTransition(async () => {
       const res = await reassignBdrAction([...selected], target.id);
       if (res.success) {
-        setMsg(`✓ ${res.updated} empresa${res.updated === 1 ? "" : "s"} reasignada${res.updated === 1 ? "" : "s"} a ${res.bdrName ?? target.name}${res.errors?.length ? ` · ${res.errors.length} con error` : ""}`);
+        const errDetail = res.errors?.length
+          ? ` · ${res.errors.length} con error (${res.errors[0].substring(0, 90)})`
+          : "";
+        setMsg(`✓ ${res.updated} empresa${res.updated === 1 ? "" : "s"} ${assign ? "asignada" : "reasignada"}${res.updated === 1 ? "" : "s"} a ${res.bdrName ?? target.name}${errDetail}`);
         onClear();
         setBdrId("");
         router.refresh();
       } else {
-        setMsg(`Error al reasignar: ${res.error}`);
+        setMsg(`Error al ${verbo.toLowerCase()}: ${res.error}`);
       }
-      setTimeout(() => setMsg(null), 6000);
+      setTimeout(() => setMsg(null), 10000);
     });
   }
 
@@ -153,7 +165,7 @@ export function ReassignBar({
               color: "var(--fg-primary)", maxWidth: 260,
             }}
           >
-            <option value="">Reasignar a…</option>
+            <option value="">{verbo} a…</option>
             {bdrOptions.map((b) => (
               <option key={b.id} value={b.id}>{b.name}</option>
             ))}
@@ -168,7 +180,7 @@ export function ReassignBar({
               cursor: isPending || !bdrId ? "default" : "pointer",
             }}
           >
-            {isPending ? "Reasignando…" : "Reasignar en Attio"}
+            {isPending ? `${verbo.replace(/ar$/, "ando")}…` : `${verbo} en Attio`}
           </button>
           <button
             onClick={onClear}

@@ -73,6 +73,7 @@ export type EventSummary = {
   qm_no_show: number;
   partner_override: string | null;
   invoice_url: string | null;
+  csat: number | null; // satisfacción del evento (encuesta Luma), 1-5, carga manual
 };
 
 export type SourceBreakdown = {

@@ -3,6 +3,7 @@ import { supabase, EventSummary, SourceBreakdown, RoleBreakdown, QmBySource, Com
 import Link from "next/link";
 import { AdSpendInput } from "./AdSpendInput";
 import { EventCostInput } from "./EventCostInput";
+import { CsatInput } from "./CsatInput";
 import { RolesChart } from "./RolesChart";
 import { PipelineDrill } from "./PipelineDrill";
 import { PartnerEditor } from "./PartnerEditor";
@@ -128,7 +129,7 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
       </header>
 
       {/* Inputs manuales */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
         {invoices.length > 0 ? (
           <div className="card">
             <div className="text-muted" style={{ fontSize: 11, marginBottom: 8 }}>Costo total del evento (neto)</div>
@@ -144,6 +145,7 @@ export default async function EventDetail({ params }: { params: Promise<{ id: st
           <EventCostInput eventId={e.luma_event_id} currentValue={Number(e.event_cost_bruto)} />
         )}
         <AdSpendInput eventId={e.luma_event_id} currentValue={Number(e.ad_spend)} />
+        <CsatInput eventId={e.luma_event_id} currentValue={e.csat != null ? Number(e.csat) : null} />
         <TerritoryEditor
           eventId={e.luma_event_id}
           initialPais={e.pais}
