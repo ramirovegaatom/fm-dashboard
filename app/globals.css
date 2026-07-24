@@ -190,3 +190,14 @@ body {
   color: var(--fg-quaternary);
   margin-bottom: 12px;
 }
+
+/* Skeletons de carga (perf 2026-07-23): feedback instantáneo mientras el server renderiza */
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 0.25; }
+}
+.skeleton {
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  animation: skeleton-pulse 1.3s ease-in-out infinite;
+}

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { supabase, SeguimientoCompany } from "@/lib/supabase";
+import { fetchSeguimientoCompanies } from "@/lib/supabase";
 import { EtapaDetailClient } from "./EtapaDetailClient";
 
 export const dynamic = "force-dynamic";
@@ -21,21 +21,9 @@ export default async function EtapaDetailPage({ searchParams }: { searchParams: 
     );
   }
 
-  // Traemos TODO (paginado por el tope de 1000 de PostgREST): la página filtra por etapa
-  // client-side para poder cambiar de etapa con pills sin recargar.
-  const all: SeguimientoCompany[] = [];
-  const PAGE = 1000;
-  for (let from = 0; ; from += PAGE) {
-    const { data } = await supabase
-      .from("fm_seguimiento_companies")
-      .select("*")
-      .order("campana_evento")
-      .order("company_name")
-      .range(from, from + PAGE - 1);
-    const rows = (data ?? []) as SeguimientoCompany[];
-    all.push(...rows);
-    if (rows.length < PAGE) break;
-  }
+  // Traemos TODO (paginación en paralelo): la página filtra por etapa client-side para
+  // poder cambiar de etapa con pills sin recargar.
+  const all = await fetchSeguimientoCompanies();
 
   return <EtapaDetailClient etapaInicial={etapa} campanaInicial={campana ?? "todas"} companies={all} />;
 }

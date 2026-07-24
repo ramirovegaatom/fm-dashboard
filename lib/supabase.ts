@@ -231,6 +231,34 @@ export type SeguimientoCompany = {
   procesada_sin_actividades: boolean;
 };
 
+// Trae TODAS las filas de fm_seguimiento_companies (PostgREST corta en 1000 por request).
+// Perf 2026-07-23: las páginas se piden EN PARALELO por tandas (antes 3 requests en serie
+// = 3x la latencia de la vista). bdrName: undefined = todas; null = sin BDR; string = ese BDR.
+export async function fetchSeguimientoCompanies(bdrName?: string | null): Promise<SeguimientoCompany[]> {
+  const PAGE = 1000;
+  const BATCH = 3; // 2.4k filas hoy → 1 tanda cubre todo; escala a más tandas si crece
+  const out: SeguimientoCompany[] = [];
+  for (let tanda = 0; ; tanda += BATCH) {
+    const pages = await Promise.all(
+      Array.from({ length: BATCH }, (_, i) => {
+        let q = supabase.from("fm_seguimiento_companies").select("*");
+        if (bdrName === null) q = q.is("assigned_bdr_name", null);
+        else if (bdrName !== undefined) q = q.eq("assigned_bdr_name", bdrName);
+        const from = (tanda + i) * PAGE;
+        return q.order("campana_evento").order("company_name").range(from, from + PAGE - 1);
+      })
+    );
+    let done = false;
+    for (const { data } of pages) {
+      const rows = (data ?? []) as SeguimientoCompany[];
+      out.push(...rows);
+      if (rows.length < PAGE) { done = true; break; }
+    }
+    if (done) break;
+  }
+  return out;
+}
+
 export type DealDrill = {
   luma_event_id: string;
   attio_deal_id: string;

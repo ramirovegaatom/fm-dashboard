@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { supabase, SeguimientoCompany } from "@/lib/supabase";
+import { supabase, fetchSeguimientoCompanies } from "@/lib/supabase";
 import { BdrDetailClient } from "./BdrDetailClient";
 
 export const dynamic = "force-dynamic";
@@ -22,32 +22,16 @@ export default async function BdrDetailPage({ searchParams }: { searchParams: Pr
     );
   }
 
-  // Paginamos por las dudas (PostgREST corta en 1000 por request).
-  const all: SeguimientoCompany[] = [];
-  const PAGE = 1000;
-  for (let from = 0; ; from += PAGE) {
-    let q = supabase.from("fm_seguimiento_companies").select("*");
-    q = bdrName === SIN_BDR ? q.is("assigned_bdr_name", null) : q.eq("assigned_bdr_name", bdrName);
-    const { data } = await q.order("campana_evento").order("company_name").range(from, from + PAGE - 1);
-    const rows = (data ?? []) as SeguimientoCompany[];
-    all.push(...rows);
-    if (rows.length < PAGE) break;
-  }
-
-  // Lista completa de BDRs (destinos posibles de la reasignación) — las empresas de esta
-  // página son de UN solo BDR, así que los destinos salen de toda la vista.
-  const bdrPairs: { id: string; name: string }[] = [];
-  for (let from = 0; ; from += PAGE) {
-    const { data } = await supabase
-      .from("fm_seguimiento_companies")
-      .select("assigned_bdr_id, assigned_bdr_name")
-      .not("assigned_bdr_id", "is", null)
-      .range(from, from + PAGE - 1);
-    const rows = (data ?? []) as { assigned_bdr_id: string; assigned_bdr_name: string | null }[];
-    for (const r of rows) bdrPairs.push({ id: r.assigned_bdr_id, name: r.assigned_bdr_name ?? r.assigned_bdr_id });
-    if (rows.length < PAGE) break;
-  }
-  const bdrOptions = [...new Map(bdrPairs.map((b) => [b.id, b])).values()].sort((a, b) => a.name.localeCompare(b.name));
+  // Perf 2026-07-23: empresas de esta persona (paginación paralela) + destinos desde la
+  // vista liviana fm_bdr_options (antes esto paginaba TODA fm_seguimiento_companies solo
+  // para armar el dropdown → 3 queries pesadas de más por carga).
+  const [all, { data: bdrRows }] = await Promise.all([
+    fetchSeguimientoCompanies(bdrName === SIN_BDR ? null : bdrName),
+    supabase.from("fm_bdr_options").select("id, name"),
+  ]);
+  const bdrOptions = ((bdrRows ?? []) as { id: string; name: string | null }[])
+    .map((b) => ({ id: b.id, name: b.name ?? b.id }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   return <BdrDetailClient bdrName={bdrName} companies={all} bdrOptions={bdrOptions} />;
 }
