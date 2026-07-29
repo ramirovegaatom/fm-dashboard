@@ -524,6 +524,50 @@ export const METRIC_LINEAGE: Record<string, LineageEntry> = {
     update: "Recalculado en cada render",
     derivedFrom: ["ad_spend"],
   },
+
+  // ─────────────── Semanal (fm_weekly_progress) — 2026-07-28 ───────────────
+  semanal_actividades: {
+    label: "Actividades semanales (llamadas / WhatsApps)",
+    flow: [
+      { label: "JustCall / WA", kind: "source", detail: "vía BigQuery" },
+      { label: "activities", kind: "store", detail: "activity_date real" },
+      { label: "fm_weekly_progress", kind: "store", detail: "view · semana = lunes" },
+      { label: "Dashboard", kind: "ui" },
+    ],
+    table: "activities",
+    column: "COUNT por semana de call_made/call_answered y whatsapp_sent",
+    filter: "solo contactos de empresas tagueadas con campaña FM (fm_tagged_companies)",
+    update: "activities se alimenta por crons del proyecto signals; la vista agrega on-the-fly",
+    note: "Histórico real: llamadas desde ene-2026, WhatsApps desde abr-2026. Una empresa en 2 campañas cuenta en ambas (misma unidad empresa×campaña del resto del dashboard).",
+  },
+  semanal_procesadas: {
+    label: "Empresas procesadas por semana",
+    flow: [
+      { label: "activities", kind: "store", detail: "activity_date real" },
+      { label: "fm_weekly_progress", kind: "store", detail: "acumulado por contacto" },
+      { label: "Dashboard", kind: "ui" },
+    ],
+    table: "fm_weekly_progress",
+    column: "empresas_procesadas: semana en que ALGÚN contacto completó la estructura (3 llamadas + 2 WA, o 2+3)",
+    update: "On-the-fly sobre activities",
+    note: "Misma definición de 'procesada' que Seguimiento (actividades como fuente de verdad). La semana asignada es cuando se COMPLETÓ la estructura, no cuando empezó la gestión.",
+  },
+  semanal_qm: {
+    label: "QM agendadas por semana",
+    flow: ATTIO_DEALS_FLOW,
+    table: "fm_attio_deals",
+    column: "COUNT por semana de fecha_qm_agendada (deals con campana_evento FM)",
+    update: "Sync Attio (cron 30 min / botón)",
+    note: "Nivel DEAL (fecha real de agendado), no el conteo de empresas por tag del detalle del evento — son universos distintos: acá importa CUÁNDO pasó. Cobertura: 99% de los deals tienen fecha_qm_agendada.",
+  },
+  semanal_won: {
+    label: "Wons / MRR por semana",
+    flow: ATTIO_DEALS_FLOW,
+    table: "fm_attio_deals",
+    column: "COUNT / SUM(value_amount) por semana de close_date WHERE stage = 'Won 🎉'",
+    update: "Sync Attio (cron 30 min / botón)",
+    note: "Misma definición que la pestaña MRR cerrado (por fecha de cierre), acotada a deals con campaña FM.",
+  },
 };
 
 export function getLineage(key: string | undefined): LineageEntry | null {

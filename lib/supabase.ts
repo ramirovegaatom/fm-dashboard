@@ -206,6 +206,43 @@ export type WonByCloseDate = {
   pais: string | null;
 };
 
+// Pestaña Semanal (fm_weekly_progress): progreso semana a semana por campaña. Retro-construido
+// de fuentes con fecha real: activities (llamadas/WA → procesamiento) y fm_attio_deals
+// (fecha_qm_agendada/fecha_de_demo/close_date → funnel de negocio). Semana = lunes (date_trunc UTC).
+// 2026-07-28.
+export type WeeklyProgress = {
+  campana_evento: string;
+  semana: string; // lunes de la semana (YYYY-MM-DD)
+  llamadas: number;
+  whatsapps: number;
+  empresas_trabajadas: number; // empresas con ≥1 actividad esa semana
+  empresas_procesadas: number; // empresas que COMPLETARON estructura (3+2) esa semana
+  qm_agendadas: number; // deals con fecha_qm_agendada esa semana
+  qm_completadas: number;
+  demos: number;
+  wons: number;
+  mrr_won: number;
+  losts: number;
+};
+
+// Trae TODAS las filas de fm_weekly_progress (~800 hoy; paginado por si crece).
+export async function fetchWeeklyProgress(): Promise<WeeklyProgress[]> {
+  const PAGE = 1000;
+  const out: WeeklyProgress[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data } = await supabase
+      .from("fm_weekly_progress")
+      .select("*")
+      .order("semana")
+      .order("campana_evento")
+      .range(from, from + PAGE - 1);
+    const rows = (data ?? []) as WeeklyProgress[];
+    out.push(...rows);
+    if (rows.length < PAGE) break;
+  }
+  return out;
+}
+
 // Sección Seguimiento (fm_seguimiento_companies): funnel por Outbound Stage + scorecard
 // BDR. Una fila por (empresa, campaña). bdr_assigned_at = active_from del assigned_bdr
 // en Attio (cuándo se seteó = fecha de asignación). 2026-07-11.
