@@ -560,6 +560,20 @@ export const METRIC_LINEAGE: Record<string, LineageEntry> = {
     update: "Sync Attio (cron 30 min / botón)",
     note: "Nivel DEAL (fecha real de agendado), no el conteo de empresas por tag del detalle del evento — son universos distintos: acá importa CUÁNDO pasó. Cobertura: 99% de los deals tienen fecha_qm_agendada.",
   },
+  semanal_bdr: {
+    label: "Seguimiento por BDR (asignaciones y procesamiento)",
+    flow: [
+      { label: "Attio (Assigned BDR)", kind: "source", detail: "active_from = fecha de asignación" },
+      { label: "fm_tagged_companies", kind: "store" },
+      { label: "fm_bdr_companies", kind: "store", detail: "view + activities" },
+      { label: "Dashboard", kind: "ui" },
+    ],
+    table: "fm_bdr_companies",
+    column: "bdr_assigned_at (asignación) · estado_actividad: procesada (3+2) / en_proceso / sin_actividad",
+    filter: "mismas exclusiones que Seguimiento (Customers + eventos ocultos)",
+    update: "Sync Attio (cron 30 min) + activities on-the-fly",
+    note: "Con filtro de fechas activo, 'Asignadas' = asignadas EN ese rango; el estado siempre es el actual. 100% de las empresas con BDR tienen fecha de asignación.",
+  },
   semanal_won: {
     label: "Wons / MRR por semana",
     flow: ATTIO_DEALS_FLOW,

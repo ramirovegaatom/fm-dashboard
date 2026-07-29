@@ -284,6 +284,40 @@ export async function fetchDailyProgress(): Promise<DailyProgress[]> {
   return out;
 }
 
+// Seguimiento por BDR (fm_bdr_companies): una fila por empresa×campaña con la fecha de
+// asignación del BDR (Attio active_from, 100% cobertura) y el estado por ACTIVIDADES.
+// Responde: cuándo se asignó X empresa a X persona, cuántas procesó / en proceso / sin
+// actividad. Mismas exclusiones que fm_seguimiento_companies (números consistentes). 2026-07-28.
+export type BdrCompany = {
+  campana_evento: string;
+  attio_company_id: string;
+  company_name: string | null;
+  assigned_bdr_name: string | null;
+  bdr_assigned_at: string | null; // fecha de asignación (YYYY-MM-DD)
+  fecha_primera_actividad: string | null;
+  fecha_procesada: string | null; // cuando completó estructura 3+2
+  estado_actividad: "sin_actividad" | "en_proceso" | "procesada";
+};
+
+// Trae TODAS las filas de fm_bdr_companies (~2.4k hoy; paginado por si crece).
+export async function fetchBdrCompanies(): Promise<BdrCompany[]> {
+  const PAGE = 1000;
+  const out: BdrCompany[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data } = await supabase
+      .from("fm_bdr_companies")
+      .select("*")
+      .order("bdr_assigned_at", { ascending: false, nullsFirst: false })
+      .order("campana_evento")
+      .order("company_name")
+      .range(from, from + PAGE - 1);
+    const rows = (data ?? []) as BdrCompany[];
+    out.push(...rows);
+    if (rows.length < PAGE) break;
+  }
+  return out;
+}
+
 // Fecha del evento por campaña (fm_campana_fechas) — para marcar el inicio del evento
 // en la pestaña Semanal y el shortcut "Desde el evento".
 export type CampanaFecha = { campana_evento: string; evento_fecha: string };

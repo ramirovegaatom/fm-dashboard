@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { DailyProgress, WeeklyHito, CampanaFecha } from "@/lib/supabase";
+import { DailyProgress, WeeklyHito, CampanaFecha, BdrCompany } from "@/lib/supabase";
 import { StatCard } from "@/components/StatCard";
 import { DateFilter, DateRange } from "@/components/DateFilter";
 import { formatCurrency } from "@/lib/format";
@@ -79,14 +79,22 @@ function fmtFecha(fecha: string) {
   return new Date(fecha + "T12:00:00Z").toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
 }
 
+const ESTADOS_META: { key: BdrCompany["estado_actividad"]; label: string; color: string }[] = [
+  { key: "sin_actividad", label: "Sin actividad", color: "var(--fg-status-error)" },
+  { key: "en_proceso", label: "En proceso", color: "var(--fg-status-info)" },
+  { key: "procesada", label: "Procesada", color: "var(--fg-status-success)" },
+];
+
 export function SemanalClient({
   dias,
   hitos,
   fechasEvento,
+  bdrCompanies,
 }: {
   dias: DailyProgress[];
   hitos: WeeklyHito[];
   fechasEvento: CampanaFecha[];
+  bdrCompanies: BdrCompany[];
 }) {
   const [campana, setCampana] = useState<string>("todas");
   const [dateRange, setDateRange] = useState<DateRange>({});
@@ -94,6 +102,10 @@ export function SemanalClient({
   const [bdrSel, setBdrSel] = useState<string | null>(null);
   const [busca, setBusca] = useState("");
   const [pagina, setPagina] = useState(0);
+  // Scorecard por BDR (independiente de la sección de hitos).
+  const [bdrScore, setBdrScore] = useState<string | null>(null);
+  const [buscaBdr, setBuscaBdr] = useState("");
+  const [paginaBdr, setPaginaBdr] = useState(0);
 
   const hoy = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const semanaActual = useMemo(() => mondayOf(hoy), [hoy]);
@@ -291,6 +303,67 @@ export function SemanalClient({
     return max;
   }, [semanas]);
 
+  // ── Seguimiento por BDR ──
+  // Con rango de fechas: empresas ASIGNADAS en ese rango (bdr_assigned_at); sin rango:
+  // todas las asignadas de la selección. El estado (sin actividad / en proceso / procesada)
+  // es siempre el actual, por actividades.
+  const asignadas = useMemo(
+    () =>
+      bdrCompanies.filter(
+        (c) =>
+          (campana === "todas" || c.campana_evento === campana) &&
+          (!fromStr || (c.bdr_assigned_at !== null && c.bdr_assigned_at >= fromStr)) &&
+          (!toStr || (c.bdr_assigned_at !== null && c.bdr_assigned_at <= toStr))
+      ),
+    [bdrCompanies, campana, fromStr, toStr]
+  );
+
+  const scoreBdr = useMemo(() => {
+    const m = new Map<string, { asignadas: number; sin: number; proc: number; done: number }>();
+    asignadas.forEach((c) => {
+      const k = c.assigned_bdr_name ?? "— sin BDR —";
+      const acc = m.get(k) ?? { asignadas: 0, sin: 0, proc: 0, done: 0 };
+      acc.asignadas++;
+      if (c.estado_actividad === "sin_actividad") acc.sin++;
+      else if (c.estado_actividad === "en_proceso") acc.proc++;
+      else acc.done++;
+      m.set(k, acc);
+    });
+    return [...m.entries()].sort((a, b) => b[1].asignadas - a[1].asignadas);
+  }, [asignadas]);
+
+  const totalScore = useMemo(
+    () =>
+      scoreBdr.reduce(
+        (acc, [, s]) => ({
+          asignadas: acc.asignadas + s.asignadas,
+          sin: acc.sin + s.sin,
+          proc: acc.proc + s.proc,
+          done: acc.done + s.done,
+        }),
+        { asignadas: 0, sin: 0, proc: 0, done: 0 }
+      ),
+    [scoreBdr]
+  );
+
+  const empresasBdr = useMemo(() => {
+    const q = buscaBdr.trim().toLowerCase();
+    return asignadas
+      .filter(
+        (c) =>
+          (!bdrScore || (c.assigned_bdr_name ?? "— sin BDR —") === bdrScore) &&
+          (!q || (c.company_name ?? "").toLowerCase().includes(q))
+      )
+      .sort((a, b) => (b.bdr_assigned_at ?? "").localeCompare(a.bdr_assigned_at ?? ""));
+  }, [asignadas, bdrScore, buscaBdr]);
+
+  const totalPaginasBdr = Math.max(1, Math.ceil(empresasBdr.length / FILAS_POR_PAGINA));
+  const paginaBdrActual = Math.min(paginaBdr, totalPaginasBdr - 1);
+  const empresasBdrPagina = useMemo(
+    () => empresasBdr.slice(paginaBdrActual * FILAS_POR_PAGINA, (paginaBdrActual + 1) * FILAS_POR_PAGINA),
+    [empresasBdr, paginaBdrActual]
+  );
+
   function filtrarSemana(semana: string) {
     const from = new Date(semana + "T00:00:00");
     const to = new Date(semana + "T00:00:00");
@@ -298,6 +371,7 @@ export function SemanalClient({
     to.setHours(23, 59, 59);
     setDateRange({ from, to });
     setPagina(0);
+    setPaginaBdr(0);
   }
 
   return (
@@ -310,6 +384,7 @@ export function SemanalClient({
             setCampana(e.target.value);
             setBdrSel(null);
             setPagina(0);
+            setPaginaBdr(0);
           }}
           style={{
             padding: "6px 10px",
@@ -333,6 +408,7 @@ export function SemanalClient({
           onChange={(r) => {
             setDateRange(r);
             setPagina(0);
+            setPaginaBdr(0);
           }}
         />
         {eventoFecha && (
@@ -391,6 +467,205 @@ export function SemanalClient({
           ))}
         </div>
       )}
+
+      {/* Seguimiento por BDR: cuándo se asignó cada empresa y en qué estado está */}
+      <div className="section-title">Seguimiento por BDR · asignaciones y procesamiento</div>
+      <div className="card" style={{ marginBottom: 32 }}>
+        <div className="text-muted" style={{ fontSize: 12, marginBottom: 12 }}>
+          {fromStr || toStr ? (
+            <>Empresas <strong>asignadas en el rango elegido</strong> (por fecha de asignación del BDR en Attio) y su estado actual.</>
+          ) : (
+            <>Todas las empresas asignadas de la selección y su estado actual. Filtrá por fechas para ver <strong>qué se le asignó a cada BDR en ese período</strong>.</>
+          )}{" "}
+          Click en un BDR para ver sus empresas.
+        </div>
+
+        {/* Scorecard */}
+        <div style={{ overflowX: "auto", marginBottom: 16 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid var(--border-tertiary)", textAlign: "left" }}>
+                <th style={thStyle}>BDR</th>
+                <th style={thRight}>Asignadas</th>
+                <th style={{ ...thRight, color: "var(--fg-status-error)" }}>Sin actividad</th>
+                <th style={{ ...thRight, color: "var(--fg-status-info)" }}>En proceso</th>
+                <th style={{ ...thRight, color: "var(--fg-status-success)" }}>Procesadas</th>
+                <th style={thRight}>% proc.</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr style={{ borderBottom: "1px solid var(--border-tertiary)", background: "var(--bg-secondary)" }}>
+                <td style={{ ...tdStyle, fontWeight: 700 }}>Todos ({scoreBdr.length})</td>
+                <td style={{ ...tdRight, fontWeight: 700 }}>{totalScore.asignadas}</td>
+                <td style={{ ...tdRight, fontWeight: 700, color: "var(--fg-status-error)" }}>{totalScore.sin}</td>
+                <td style={{ ...tdRight, fontWeight: 700, color: "var(--fg-status-info)" }}>{totalScore.proc}</td>
+                <td style={{ ...tdRight, fontWeight: 700, color: "var(--fg-status-success)" }}>{totalScore.done}</td>
+                <td style={{ ...tdRight, fontWeight: 700 }}>
+                  {totalScore.asignadas > 0 ? Math.round((totalScore.done / totalScore.asignadas) * 100) : 0}%
+                </td>
+              </tr>
+              {scoreBdr.map(([bdr, s]) => {
+                const active = bdrScore === bdr;
+                return (
+                  <tr
+                    key={bdr}
+                    onClick={() => {
+                      setBdrScore(active ? null : bdr);
+                      setPaginaBdr(0);
+                    }}
+                    style={{
+                      borderBottom: "1px solid var(--border-tertiary)",
+                      cursor: "pointer",
+                      background: active ? "color-mix(in srgb, var(--fg-status-brand) 10%, transparent)" : undefined,
+                    }}
+                  >
+                    <td style={{ ...tdStyle, fontWeight: 600, color: bdr === "— sin BDR —" ? "var(--fg-quaternary)" : undefined }}>
+                      {active ? "▸ " : ""}{bdr}
+                    </td>
+                    <td style={{ ...tdRight, fontWeight: 600 }}>{s.asignadas}</td>
+                    <td style={{ ...tdRight, ...heatStyle(s.sin, Math.max(s.asignadas, 1), "var(--fg-status-error)") }}>{s.sin > 0 ? s.sin : "·"}</td>
+                    <td style={{ ...tdRight, ...heatStyle(s.proc, Math.max(s.asignadas, 1), "var(--fg-status-info)") }}>{s.proc > 0 ? s.proc : "·"}</td>
+                    <td style={{ ...tdRight, ...heatStyle(s.done, Math.max(s.asignadas, 1), "var(--fg-status-success)") }}>{s.done > 0 ? s.done : "·"}</td>
+                    <td style={{ ...tdRight, color: "var(--fg-secondary)" }}>
+                      {s.asignadas > 0 ? Math.round((s.done / s.asignadas) * 100) : 0}%
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Empresas del BDR seleccionado (o todas) */}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10, alignItems: "center" }}>
+          <span style={{ fontSize: 12, fontWeight: 700 }}>
+            {bdrScore ? `Empresas de ${bdrScore}` : "Todas las empresas asignadas"}
+          </span>
+          <input
+            type="search"
+            value={buscaBdr}
+            onChange={(e) => {
+              setBuscaBdr(e.target.value);
+              setPaginaBdr(0);
+            }}
+            placeholder="Buscar empresa…"
+            style={{
+              padding: "6px 10px",
+              fontSize: 12,
+              borderRadius: 8,
+              border: "1px solid var(--border-tertiary)",
+              background: "var(--bg-primary)",
+              color: "var(--fg-primary)",
+              width: 220,
+            }}
+          />
+          <span className="text-muted" style={{ fontSize: 12 }}>
+            {empresasBdr.length} empresa{empresasBdr.length === 1 ? "" : "s"}
+          </span>
+          {bdrScore && (
+            <button
+              onClick={() => {
+                setBdrScore(null);
+                setPaginaBdr(0);
+              }}
+              style={{ ...pagBtnStyle, padding: "4px 10px", fontSize: 11 }}
+            >
+              ✕ Quitar filtro BDR
+            </button>
+          )}
+        </div>
+
+        {empresasBdr.length === 0 ? (
+          <div className="text-muted" style={{ padding: 16, textAlign: "center", fontSize: 13 }}>
+            Sin empresas asignadas en la selección.
+          </div>
+        ) : (
+          <div>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid var(--border-tertiary)", textAlign: "left" }}>
+                  <th style={thStyle}>Empresa</th>
+                  {campana === "todas" && <th style={thStyle}>Campaña</th>}
+                  {!bdrScore && <th style={thStyle}>BDR</th>}
+                  <th style={thRight}>Asignada el</th>
+                  <th style={thRight}>1ª actividad</th>
+                  <th style={thRight}>Procesada el</th>
+                  <th style={thStyle}>Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {empresasBdrPagina.map((c, i) => {
+                  const url = attioCompanyUrl(c.attio_company_id);
+                  const estado = ESTADOS_META.find((e) => e.key === c.estado_actividad)!;
+                  return (
+                    <tr key={`${c.attio_company_id}-${c.campana_evento}-${i}`} style={{ borderBottom: "1px solid var(--border-tertiary)" }}>
+                      <td style={{ ...tdStyle, fontWeight: 600 }}>
+                        {url ? (
+                          <a href={url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--fg-primary)", textDecoration: "none" }}>
+                            {c.company_name ?? "— sin nombre —"}
+                          </a>
+                        ) : (
+                          c.company_name ?? "— sin nombre —"
+                        )}
+                      </td>
+                      {campana === "todas" && (
+                        <td style={tdStyle}>
+                          <span className="badge" style={{ background: "var(--bg-status-brand)", color: "var(--fg-status-brand)", fontSize: 10 }}>
+                            {c.campana_evento}
+                          </span>
+                        </td>
+                      )}
+                      {!bdrScore && (
+                        <td style={{ ...tdStyle, color: c.assigned_bdr_name ? "var(--fg-secondary)" : "var(--fg-quaternary)" }}>
+                          {c.assigned_bdr_name ?? "— sin BDR —"}
+                        </td>
+                      )}
+                      <td style={{ ...tdRight, whiteSpace: "nowrap", fontWeight: 600 }}>
+                        {c.bdr_assigned_at ? fmtFecha(c.bdr_assigned_at) : "—"}
+                      </td>
+                      <td style={{ ...tdRight, whiteSpace: "nowrap", color: "var(--fg-secondary)" }}>
+                        {c.fecha_primera_actividad ? fmtFecha(c.fecha_primera_actividad) : "—"}
+                      </td>
+                      <td style={{ ...tdRight, whiteSpace: "nowrap", color: "var(--fg-secondary)" }}>
+                        {c.fecha_procesada ? fmtFecha(c.fecha_procesada) : "—"}
+                      </td>
+                      <td style={tdStyle}>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: estado.color, whiteSpace: "nowrap" }}>● {estado.label}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {totalPaginasBdr > 1 && (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, padding: "12px 0 2px" }}>
+                <button
+                  onClick={() => setPaginaBdr(Math.max(0, paginaBdrActual - 1))}
+                  disabled={paginaBdrActual === 0}
+                  style={{ ...pagBtnStyle, opacity: paginaBdrActual === 0 ? 0.4 : 1 }}
+                >
+                  ← Anterior
+                </button>
+                <span className="text-muted" style={{ fontSize: 12 }}>
+                  {paginaBdrActual * FILAS_POR_PAGINA + 1}–{Math.min((paginaBdrActual + 1) * FILAS_POR_PAGINA, empresasBdr.length)} de {empresasBdr.length} · pág. {paginaBdrActual + 1}/{totalPaginasBdr}
+                </span>
+                <button
+                  onClick={() => setPaginaBdr(Math.min(totalPaginasBdr - 1, paginaBdrActual + 1))}
+                  disabled={paginaBdrActual >= totalPaginasBdr - 1}
+                  style={{ ...pagBtnStyle, opacity: paginaBdrActual >= totalPaginasBdr - 1 ? 0.4 : 1 }}
+                >
+                  Siguiente →
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="text-muted" style={{ fontSize: 11, marginTop: 12 }}>
+          &quot;Asignada el&quot; = cuándo se seteó el Assigned BDR en Attio (100% de cobertura) · estado por actividades reales:
+          procesada = estructura 3+2 completa, en proceso = con actividad pero sin estructura, sin actividad = ni una llamada/WhatsApp.
+        </div>
+      </div>
 
       {/* Empresas por hito — siempre visible (feedback Ramiro 2026-07-28) */}
       <div className="section-title">Empresas por hito · quién las trabajó</div>
