@@ -141,7 +141,8 @@ export function CalendarioClient({ eventos }: { eventos: UpcomingEvent[] }) {
 
       {/* Grilla mensual */}
       <div className="card" style={{ padding: 0, overflow: "hidden", marginBottom: 32 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", borderBottom: "1px solid var(--border-tertiary)" }}>
+        {/* minmax(0,1fr): sin el 0, un nombre largo de evento estira su columna y rompe la simetría */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", borderBottom: "1px solid var(--border-tertiary)" }}>
           {DIAS.map((d) => (
             <div key={d} style={{ padding: "8px 10px", fontSize: 11, fontWeight: 600, color: "var(--fg-quaternary)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
               {d}
@@ -149,7 +150,7 @@ export function CalendarioClient({ eventos }: { eventos: UpcomingEvent[] }) {
           ))}
         </div>
         {semanas.map((semana, wi) => (
-          <div key={wi} style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", borderBottom: wi < semanas.length - 1 ? "1px solid var(--border-tertiary)" : "none" }}>
+          <div key={wi} style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", borderBottom: wi < semanas.length - 1 ? "1px solid var(--border-tertiary)" : "none" }}>
             {semana.map((dia) => {
               const key = isoDate(dia);
               const delMes = dia.getMonth() === mes.getMonth();
@@ -162,6 +163,8 @@ export function CalendarioClient({ eventos }: { eventos: UpcomingEvent[] }) {
                   title="Click para agregar un evento este día"
                   style={{
                     minHeight: 92,
+                    minWidth: 0,
+                    overflow: "hidden",
                     padding: 6,
                     borderRight: "1px solid var(--border-tertiary)",
                     background: delMes ? "var(--bg-primary)" : "var(--bg-secondary)",
