@@ -48,7 +48,15 @@ const HITOS_META: { key: WeeklyHito["hito"]; label: string }[] = [
   { key: "won", label: "Won" },
 ];
 
-const MAX_FILAS_HITOS = 300;
+const FILAS_POR_PAGINA = 25;
+
+// Celda heatmap: fondo del color de la métrica con intensidad ∝ valor / máximo de la
+// columna (la tabla semanal se lee de un vistazo sin perder el número exacto).
+function heatStyle(valor: number, max: number, color: string): React.CSSProperties {
+  if (valor <= 0 || max <= 0) return {};
+  const pct = Math.round(8 + 32 * (valor / max));
+  return { background: `color-mix(in srgb, ${color} ${pct}%, transparent)` };
+}
 
 function mondayOf(fecha: string): string {
   const d = new Date(fecha + "T00:00:00Z");
@@ -84,6 +92,8 @@ export function SemanalClient({
   const [dateRange, setDateRange] = useState<DateRange>({});
   const [hito, setHito] = useState<WeeklyHito["hito"]>("procesada");
   const [bdrSel, setBdrSel] = useState<string | null>(null);
+  const [busca, setBusca] = useState("");
+  const [pagina, setPagina] = useState(0);
 
   const hoy = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const semanaActual = useMemo(() => mondayOf(hoy), [hoy]);
@@ -230,10 +240,16 @@ export function SemanalClient({
     return m;
   }, [hitosFiltrados]);
 
-  const filasHito = useMemo(
-    () => hitosFiltrados.filter((h) => h.hito === hito).sort((a, b) => b.fecha.localeCompare(a.fecha)),
-    [hitosFiltrados, hito]
-  );
+  const filasHito = useMemo(() => {
+    const q = busca.trim().toLowerCase();
+    return hitosFiltrados
+      .filter(
+        (h) =>
+          h.hito === hito &&
+          (!q || (h.company_name ?? "").toLowerCase().includes(q) || (h.deal_name ?? "").toLowerCase().includes(q))
+      )
+      .sort((a, b) => b.fecha.localeCompare(a.fecha));
+  }, [hitosFiltrados, hito, busca]);
 
   const porBdr = useMemo(() => {
     const m = new Map<string, number>();
@@ -249,7 +265,31 @@ export function SemanalClient({
     [filasHito, bdrSel]
   );
 
-  const hayDeals = filasVisibles.some((f) => f.deal_name);
+  const totalPaginas = Math.max(1, Math.ceil(filasVisibles.length / FILAS_POR_PAGINA));
+  const paginaActual = Math.min(pagina, totalPaginas - 1);
+  const filasPagina = useMemo(
+    () => filasVisibles.slice(paginaActual * FILAS_POR_PAGINA, (paginaActual + 1) * FILAS_POR_PAGINA),
+    [filasVisibles, paginaActual]
+  );
+
+  const hayDeals = filasPagina.some((f) => f.deal_name);
+
+  // Máximos por columna para el heatmap de la tabla semanal.
+  const colMax = useMemo(() => {
+    const max = { llamadas: 0, whatsapps: 0, empresas_procesadas: 0, qm_agendadas: 0, qm_completadas: 0, demos: 0, wons: 0, mrr_won: 0, losts: 0 };
+    semanas.forEach((s) => {
+      max.llamadas = Math.max(max.llamadas, s.llamadas);
+      max.whatsapps = Math.max(max.whatsapps, s.whatsapps);
+      max.empresas_procesadas = Math.max(max.empresas_procesadas, s.empresas_procesadas);
+      max.qm_agendadas = Math.max(max.qm_agendadas, s.qm_agendadas);
+      max.qm_completadas = Math.max(max.qm_completadas, s.qm_completadas);
+      max.demos = Math.max(max.demos, s.demos);
+      max.wons = Math.max(max.wons, s.wons);
+      max.mrr_won = Math.max(max.mrr_won, Number(s.mrr_won));
+      max.losts = Math.max(max.losts, s.losts);
+    });
+    return max;
+  }, [semanas]);
 
   function filtrarSemana(semana: string) {
     const from = new Date(semana + "T00:00:00");
@@ -257,6 +297,7 @@ export function SemanalClient({
     to.setDate(to.getDate() + 6);
     to.setHours(23, 59, 59);
     setDateRange({ from, to });
+    setPagina(0);
   }
 
   return (
@@ -268,6 +309,7 @@ export function SemanalClient({
           onChange={(e) => {
             setCampana(e.target.value);
             setBdrSel(null);
+            setPagina(0);
           }}
           style={{
             padding: "6px 10px",
@@ -286,7 +328,13 @@ export function SemanalClient({
             </option>
           ))}
         </select>
-        <DateFilter value={dateRange} onChange={setDateRange} />
+        <DateFilter
+          value={dateRange}
+          onChange={(r) => {
+            setDateRange(r);
+            setPagina(0);
+          }}
+        />
         {eventoFecha && (
           <>
             <span className="badge" style={{ background: "var(--bg-status-brand)", color: "var(--fg-status-brand)", fontSize: 11 }}>
@@ -357,6 +405,7 @@ export function SemanalClient({
                 onClick={() => {
                   setHito(h.key);
                   setBdrSel(null);
+                  setPagina(0);
                 }}
                 disabled={n === 0}
                 style={{
@@ -377,38 +426,61 @@ export function SemanalClient({
           })}
         </div>
 
-        {/* Quién (BDR asignado) — click filtra la lista */}
-        {porBdr.length > 0 && (
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
-            {porBdr.map(([bdr, n]) => {
-              const active = bdrSel === bdr;
-              return (
-                <button
-                  key={bdr}
-                  onClick={() => setBdrSel(active ? null : bdr)}
-                  style={{
-                    padding: "3px 8px",
-                    fontSize: 11,
-                    borderRadius: 999,
-                    border: "1px solid var(--border-tertiary)",
-                    cursor: "pointer",
-                    background: active ? "var(--fg-primary)" : "var(--bg-secondary)",
-                    color: active ? "var(--bg-primary)" : "var(--fg-secondary)",
-                  }}
-                >
-                  {bdr}: <strong>{n}</strong>
-                </button>
-              );
-            })}
-          </div>
-        )}
+        {/* Buscador + desplegable de BDR (con conteos) */}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12, alignItems: "center" }}>
+          <input
+            type="search"
+            value={busca}
+            onChange={(e) => {
+              setBusca(e.target.value);
+              setPagina(0);
+            }}
+            placeholder="Buscar empresa…"
+            style={{
+              padding: "6px 10px",
+              fontSize: 12,
+              borderRadius: 8,
+              border: "1px solid var(--border-tertiary)",
+              background: "var(--bg-primary)",
+              color: "var(--fg-primary)",
+              width: 220,
+            }}
+          />
+          <select
+            value={bdrSel ?? "todos"}
+            onChange={(e) => {
+              setBdrSel(e.target.value === "todos" ? null : e.target.value);
+              setPagina(0);
+            }}
+            style={{
+              padding: "6px 10px",
+              fontSize: 12,
+              fontWeight: 600,
+              borderRadius: 8,
+              border: "1px solid var(--border-tertiary)",
+              background: bdrSel ? "var(--fg-primary)" : "var(--bg-primary)",
+              color: bdrSel ? "var(--bg-primary)" : "var(--fg-secondary)",
+              maxWidth: 280,
+            }}
+          >
+            <option value="todos">Todos los BDRs ({porBdr.length})</option>
+            {porBdr.map(([bdr, n]) => (
+              <option key={bdr} value={bdr}>
+                {bdr} — {n}
+              </option>
+            ))}
+          </select>
+          <span className="text-muted" style={{ fontSize: 12 }}>
+            {filasVisibles.length} empresa{filasVisibles.length === 1 ? "" : "s"}
+          </span>
+        </div>
 
         {filasVisibles.length === 0 ? (
           <div className="text-muted" style={{ padding: 16, textAlign: "center", fontSize: 13 }}>
             Sin empresas con este hito en la selección.
           </div>
         ) : (
-          <div style={{ maxHeight: 480, overflowY: "auto" }}>
+          <div>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ borderBottom: "1px solid var(--border-tertiary)", textAlign: "left" }}>
@@ -421,7 +493,7 @@ export function SemanalClient({
                 </tr>
               </thead>
               <tbody>
-                {filasVisibles.slice(0, MAX_FILAS_HITOS).map((f, i) => {
+                {filasPagina.map((f, i) => {
                   const url = attioCompanyUrl(f.attio_company_id);
                   return (
                     <tr key={`${f.attio_company_id}-${f.deal_name}-${f.fecha}-${i}`} style={{ borderBottom: "1px solid var(--border-tertiary)" }}>
@@ -452,9 +524,25 @@ export function SemanalClient({
                 })}
               </tbody>
             </table>
-            {filasVisibles.length > MAX_FILAS_HITOS && (
-              <div className="text-muted" style={{ padding: 10, fontSize: 12, textAlign: "center" }}>
-                Mostrando {MAX_FILAS_HITOS} de {filasVisibles.length} — acotá el rango de fechas para ver el resto.
+            {totalPaginas > 1 && (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, padding: "12px 0 2px" }}>
+                <button
+                  onClick={() => setPagina(Math.max(0, paginaActual - 1))}
+                  disabled={paginaActual === 0}
+                  style={{ ...pagBtnStyle, opacity: paginaActual === 0 ? 0.4 : 1 }}
+                >
+                  ← Anterior
+                </button>
+                <span className="text-muted" style={{ fontSize: 12 }}>
+                  {paginaActual * FILAS_POR_PAGINA + 1}–{Math.min((paginaActual + 1) * FILAS_POR_PAGINA, filasVisibles.length)} de {filasVisibles.length} · pág. {paginaActual + 1}/{totalPaginas}
+                </span>
+                <button
+                  onClick={() => setPagina(Math.min(totalPaginas - 1, paginaActual + 1))}
+                  disabled={paginaActual >= totalPaginas - 1}
+                  style={{ ...pagBtnStyle, opacity: paginaActual >= totalPaginas - 1 ? 0.4 : 1 }}
+                >
+                  Siguiente →
+                </button>
               </div>
             )}
           </div>
@@ -506,17 +594,21 @@ export function SemanalClient({
                     {fmtSemana(s.semana)}
                   </button>
                 </td>
-                <td style={tdRight}>{s.llamadas}</td>
-                <td style={tdRight}>{s.whatsapps}</td>
-                <td style={tdRight}>{s.empresas_procesadas}</td>
-                <td style={tdRight}>{s.qm_agendadas}</td>
-                <td style={tdRight}>{s.qm_completadas}</td>
-                <td style={tdRight}>{s.demos}</td>
-                <td style={{ ...tdRight, fontWeight: 600 }}>{s.wons}</td>
-                <td style={{ ...tdRight, color: "var(--fg-status-success)", fontWeight: 600 }}>
-                  {Number(s.mrr_won) > 0 ? formatCurrency(Number(s.mrr_won)) : "—"}
-                </td>
-                <td style={{ ...tdRight, color: "var(--fg-quaternary)" }}>{s.losts}</td>
+                <HeatCell valor={s.llamadas} max={colMax.llamadas} color="var(--chart-linkedin)" />
+                <HeatCell valor={s.whatsapps} max={colMax.whatsapps} color="var(--chart-email)" />
+                <HeatCell valor={s.empresas_procesadas} max={colMax.empresas_procesadas} color="var(--fg-status-brand)" bold />
+                <HeatCell valor={s.qm_agendadas} max={colMax.qm_agendadas} color="var(--fg-status-info)" />
+                <HeatCell valor={s.qm_completadas} max={colMax.qm_completadas} color="var(--fg-status-info)" />
+                <HeatCell valor={s.demos} max={colMax.demos} color="var(--chart-partner)" />
+                <HeatCell valor={s.wons} max={colMax.wons} color="var(--fg-status-success)" bold />
+                <HeatCell
+                  valor={Number(s.mrr_won)}
+                  max={colMax.mrr_won}
+                  color="var(--fg-status-success)"
+                  bold
+                  render={(n) => formatCurrency(n)}
+                />
+                <HeatCell valor={s.losts} max={colMax.losts} color="var(--fg-quaternary)" />
               </tr>
             ))}
           </tbody>
@@ -646,6 +738,42 @@ function WeekBars({
     </div>
   );
 }
+
+// Celda de la tabla semanal: número + fondo con intensidad ∝ valor (0 = "·" atenuado,
+// así las semanas activas saltan a la vista sin leer cada cifra).
+function HeatCell({
+  valor,
+  max,
+  color,
+  bold,
+  render,
+}: {
+  valor: number;
+  max: number;
+  color: string;
+  bold?: boolean;
+  render?: (n: number) => string;
+}) {
+  if (valor <= 0) {
+    return <td style={{ ...tdRight, color: "var(--border-tertiary)" }}>·</td>;
+  }
+  return (
+    <td style={{ ...tdRight, ...heatStyle(valor, max, color), fontWeight: bold ? 600 : undefined }}>
+      {render ? render(valor) : valor.toLocaleString("es-AR")}
+    </td>
+  );
+}
+
+const pagBtnStyle: React.CSSProperties = {
+  padding: "5px 12px",
+  fontSize: 12,
+  fontWeight: 600,
+  borderRadius: 8,
+  border: "1px solid var(--border-tertiary)",
+  background: "var(--bg-primary)",
+  color: "var(--fg-secondary)",
+  cursor: "pointer",
+};
 
 const thStyle: React.CSSProperties = {
   padding: "10px 14px",
