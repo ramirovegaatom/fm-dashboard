@@ -300,6 +300,16 @@ export type UpcomingEvent = {
   notas: string | null;
   estado: "Planificado" | "Confirmado" | "Cancelado";
   campana_evento: string | null; // link al tracking (Attio/Luma) cuando exista
+  // Metas y links del doc de planificación de José (meta vs real cuando el evento pase).
+  ppt_link: string | null;
+  plan_fm_link: string | null;
+  plan_ventas_link: string | null;
+  meta_registros: number | null;
+  meta_asistentes: number | null;
+  meta_qms: number | null;
+  meta_wons: number | null;
+  meta_mrr: number | null;
+  costo_estimado: number | null;
   created_at: string;
   updated_at: string;
   updated_by: string | null;

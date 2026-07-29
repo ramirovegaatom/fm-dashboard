@@ -245,6 +245,7 @@ export function CalendarioClient({ eventos }: { eventos: UpcomingEvent[] }) {
                 <th style={thStyle}>Industria</th>
                 <th style={thStyle}>País / Territorio</th>
                 <th style={thStyle}>Responsable</th>
+                <th style={thStyle}>Metas</th>
                 <th style={thStyle}>Estado</th>
                 <th style={thStyle} />
               </tr>
@@ -267,6 +268,11 @@ export function CalendarioClient({ eventos }: { eventos: UpcomingEvent[] }) {
                     {e.pais ?? "—"}{e.territorio ? ` · ${e.territorio}` : ""}
                   </td>
                   <td style={{ ...tdStyle, color: "var(--fg-secondary)" }}>{e.responsable ?? "—"}</td>
+                  <td style={{ ...tdStyle, color: "var(--fg-secondary)", fontSize: 12, whiteSpace: "nowrap" }}>
+                    {e.meta_qms != null || e.meta_mrr != null
+                      ? `${e.meta_qms ?? "—"} QMs · $${Number(e.meta_mrr ?? 0).toLocaleString("es-AR")}`
+                      : "—"}
+                  </td>
                   <td style={tdStyle}>
                     <span
                       className="badge"
@@ -337,7 +343,20 @@ function EventForm({
     notas: evento?.notas ?? "",
     estado: evento?.estado ?? "Planificado",
     campana_evento: evento?.campana_evento ?? "",
+    ppt_link: evento?.ppt_link ?? "",
+    plan_fm_link: evento?.plan_fm_link ?? "",
+    plan_ventas_link: evento?.plan_ventas_link ?? "",
+    meta_registros: evento?.meta_registros ?? null,
+    meta_asistentes: evento?.meta_asistentes ?? null,
+    meta_qms: evento?.meta_qms ?? null,
+    meta_wons: evento?.meta_wons ?? null,
+    meta_mrr: evento?.meta_mrr ?? null,
+    costo_estimado: evento?.costo_estimado ?? null,
   });
+
+  function setNum(key: keyof UpcomingEventInput, value: string) {
+    setForm((f) => ({ ...f, [key]: value === "" ? null : Number(value) }));
+  }
 
   function set<K extends keyof UpcomingEventInput>(key: K, value: UpcomingEventInput[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -445,7 +464,60 @@ function EventForm({
           Nomenclatura Attio (opcional — linkea el evento al tracking cuando exista)
           <input value={form.campana_evento ?? ""} onChange={(e) => set("campana_evento", e.target.value)} placeholder="Ej: Evento_AISummitBogota_15/09/26" style={inputStyle} />
         </label>
+
+        {/* Metas del doc de planificación */}
+        <div style={{ gridColumn: "1 / -1", fontSize: 11, fontWeight: 700, color: "var(--fg-quaternary)", textTransform: "uppercase", letterSpacing: "0.04em", marginTop: 4 }}>
+          Metas del evento
+        </div>
+        <div style={{ gridColumn: "1 / -1", display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+          <label style={labelStyle}>
+            Registros meta
+            <input type="number" min={0} value={form.meta_registros ?? ""} onChange={(e) => setNum("meta_registros", e.target.value)} style={inputStyle} />
+          </label>
+          <label style={labelStyle}>
+            Asistentes meta
+            <input type="number" min={0} value={form.meta_asistentes ?? ""} onChange={(e) => setNum("meta_asistentes", e.target.value)} style={inputStyle} />
+          </label>
+          <label style={labelStyle}>
+            QMs meta
+            <input type="number" min={0} value={form.meta_qms ?? ""} onChange={(e) => setNum("meta_qms", e.target.value)} style={inputStyle} />
+          </label>
+          <label style={labelStyle}>
+            Wons meta
+            <input type="number" min={0} value={form.meta_wons ?? ""} onChange={(e) => setNum("meta_wons", e.target.value)} style={inputStyle} />
+          </label>
+          <label style={labelStyle}>
+            MRR meta ($)
+            <input type="number" min={0} value={form.meta_mrr ?? ""} onChange={(e) => setNum("meta_mrr", e.target.value)} style={inputStyle} />
+          </label>
+          <label style={labelStyle}>
+            Costo estimado ($)
+            <input type="number" min={0} value={form.costo_estimado ?? ""} onChange={(e) => setNum("costo_estimado", e.target.value)} style={inputStyle} />
+          </label>
+        </div>
+
+        {/* Links de trabajo */}
+        <label style={{ ...labelStyle, gridColumn: "1 / -1" }}>
+          PPT Atom (link)
+          <input value={form.ppt_link ?? ""} onChange={(e) => set("ppt_link", e.target.value)} placeholder="https://…" style={inputStyle} />
+        </label>
+        <label style={labelStyle}>
+          Plan de acción Field Marketing (link)
+          <input value={form.plan_fm_link ?? ""} onChange={(e) => set("plan_fm_link", e.target.value)} placeholder="https://…" style={inputStyle} />
+        </label>
+        <label style={labelStyle}>
+          Plan de acción Ventas (link)
+          <input value={form.plan_ventas_link ?? ""} onChange={(e) => set("plan_ventas_link", e.target.value)} placeholder="https://…" style={inputStyle} />
+        </label>
       </div>
+
+      {evento && (evento.ppt_link || evento.plan_fm_link || evento.plan_ventas_link) && (
+        <div style={{ display: "flex", gap: 10, marginTop: 12, flexWrap: "wrap" }}>
+          {evento.ppt_link && <a href={evento.ppt_link} target="_blank" rel="noopener noreferrer" style={linkChip}>📊 PPT Atom ↗</a>}
+          {evento.plan_fm_link && <a href={evento.plan_fm_link} target="_blank" rel="noopener noreferrer" style={linkChip}>📋 Plan FM ↗</a>}
+          {evento.plan_ventas_link && <a href={evento.plan_ventas_link} target="_blank" rel="noopener noreferrer" style={linkChip}>💼 Plan Ventas ↗</a>}
+        </div>
+      )}
 
       {error && (
         <div style={{ marginTop: 12, fontSize: 12, fontWeight: 600, color: "var(--fg-status-error)" }}>{error}</div>
@@ -499,6 +571,17 @@ function EventForm({
     </Modal>
   );
 }
+
+const linkChip: React.CSSProperties = {
+  fontSize: 12,
+  fontWeight: 600,
+  color: "var(--fg-status-info)",
+  textDecoration: "none",
+  padding: "4px 10px",
+  borderRadius: 8,
+  border: "1px solid var(--border-tertiary)",
+  background: "var(--bg-secondary)",
+};
 
 const navBtn: React.CSSProperties = {
   width: 32,

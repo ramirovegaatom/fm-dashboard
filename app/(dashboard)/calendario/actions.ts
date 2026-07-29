@@ -18,6 +18,15 @@ export type UpcomingEventInput = {
   notas?: string | null;
   estado: UpcomingEvent["estado"];
   campana_evento?: string | null;
+  ppt_link?: string | null;
+  plan_fm_link?: string | null;
+  plan_ventas_link?: string | null;
+  meta_registros?: number | null;
+  meta_asistentes?: number | null;
+  meta_qms?: number | null;
+  meta_wons?: number | null;
+  meta_mrr?: number | null;
+  costo_estimado?: number | null;
 };
 
 export async function saveUpcomingEvent(input: UpcomingEventInput) {
@@ -40,6 +49,15 @@ export async function saveUpcomingEvent(input: UpcomingEventInput) {
     notas: input.notas?.trim() || null,
     estado: input.estado,
     campana_evento: input.campana_evento?.trim() || null,
+    ppt_link: input.ppt_link?.trim() || null,
+    plan_fm_link: input.plan_fm_link?.trim() || null,
+    plan_ventas_link: input.plan_ventas_link?.trim() || null,
+    meta_registros: input.meta_registros ?? null,
+    meta_asistentes: input.meta_asistentes ?? null,
+    meta_qms: input.meta_qms ?? null,
+    meta_wons: input.meta_wons ?? null,
+    meta_mrr: input.meta_mrr ?? null,
+    costo_estimado: input.costo_estimado ?? null,
     updated_at: new Date().toISOString(),
   };
 
