@@ -1,9 +1,9 @@
-import { fetchWeeklyProgress } from "@/lib/supabase";
+import { fetchWeeklyProgress, fetchWeeklyHitos } from "@/lib/supabase";
 import { SemanalClient } from "./SemanalClient";
 
 export const dynamic = "force-dynamic";
 
 export default async function SemanalPage() {
-  const rows = await fetchWeeklyProgress();
-  return <SemanalClient rows={rows} />;
+  const [rows, hitos] = await Promise.all([fetchWeeklyProgress(), fetchWeeklyHitos()]);
+  return <SemanalClient rows={rows} hitos={hitos} />;
 }

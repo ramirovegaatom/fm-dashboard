@@ -225,6 +225,43 @@ export type WeeklyProgress = {
   losts: number;
 };
 
+// Drill de la pestaña Semanal (fm_weekly_hitos): QUÉ empresa alcanzó QUÉ hito en QUÉ semana
+// y QUIÉN lo trabajó. Fecha = la del hito real (actividad o fecha de etapa del deal), NUNCA
+// la fecha del evento. BDR = asignado actual en Attio (mismo criterio que el scorecard de
+// Seguimiento); agentes = quién llamó según JustCall (solo era webhook, cobertura parcial).
+// dropoff/recycle no tienen fecha histórica (Attio sobreescribe el stage) → se cubrirán con
+// fm_weekly_snapshots hacia adelante. 2026-07-28.
+export type WeeklyHito = {
+  hito: "inicio_prospeccion" | "procesada" | "qm_agendada" | "qm_completada" | "demo" | "won";
+  campana_evento: string;
+  attio_company_id: string | null;
+  company_name: string | null;
+  assigned_bdr_name: string | null;
+  agentes: string | null; // agent_name(s) de JustCall, "A, B"
+  deal_name: string | null; // solo hitos de deal (qm_*/demo/won)
+  fecha: string;
+  semana: string; // lunes (YYYY-MM-DD)
+};
+
+// Trae TODAS las filas de fm_weekly_hitos (~2k hoy; paginado por si crece).
+export async function fetchWeeklyHitos(): Promise<WeeklyHito[]> {
+  const PAGE = 1000;
+  const out: WeeklyHito[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data } = await supabase
+      .from("fm_weekly_hitos")
+      .select("*")
+      .order("semana")
+      .order("campana_evento")
+      .order("company_name")
+      .range(from, from + PAGE - 1);
+    const rows = (data ?? []) as WeeklyHito[];
+    out.push(...rows);
+    if (rows.length < PAGE) break;
+  }
+  return out;
+}
+
 // Trae TODAS las filas de fm_weekly_progress (~800 hoy; paginado por si crece).
 export async function fetchWeeklyProgress(): Promise<WeeklyProgress[]> {
   const PAGE = 1000;

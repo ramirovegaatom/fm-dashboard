@@ -1,9 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { WeeklyProgress } from "@/lib/supabase";
+import { WeeklyProgress, WeeklyHito } from "@/lib/supabase";
 import { StatCard } from "@/components/StatCard";
+import { Modal } from "@/components/Modal";
 import { formatCurrency } from "@/lib/format";
+import { attioCompanyUrl } from "@/lib/attio";
 
 // 2026-07-28: progreso semana a semana (pedido reunión Camilo/José 2026-07-23).
 // Histórico retro-construido de fuentes con fecha real: activities (llamadas/WA)
@@ -25,9 +27,11 @@ const METRICAS_CHART: {
   { key: "mrr_won", label: "MRR cerrado", color: "var(--fg-status-success)", money: true },
 ];
 
-export function SemanalClient({ rows }: { rows: WeeklyProgress[] }) {
+export function SemanalClient({ rows, hitos }: { rows: WeeklyProgress[]; hitos: WeeklyHito[] }) {
   const [campana, setCampana] = useState<string>("todas");
   const [rango, setRango] = useState<RangoSemanas>(12);
+  // Drill: qué empresas alcanzaron qué hito esa semana y quién las trabajó.
+  const [drillSemana, setDrillSemana] = useState<string | null>(null);
 
   // Lunes de la semana en curso (UTC, igual que date_trunc('week') en la vista).
   const semanaActual = useMemo(() => {
@@ -207,6 +211,7 @@ export function SemanalClient({ rows }: { rows: WeeklyProgress[] }) {
               <th style={thRight}>Wons</th>
               <th style={thRight}>MRR</th>
               <th style={thRight}>Losts</th>
+              <th style={thStyle} />
             </tr>
           </thead>
           <tbody>
@@ -225,12 +230,198 @@ export function SemanalClient({ rows }: { rows: WeeklyProgress[] }) {
                   {Number(s.mrr_won) > 0 ? formatCurrency(Number(s.mrr_won)) : "—"}
                 </td>
                 <td style={{ ...tdRight, color: "var(--fg-quaternary)" }}>{s.losts}</td>
+                <td style={tdRight}>
+                  <button
+                    onClick={() => setDrillSemana(s.semana)}
+                    style={{
+                      padding: "4px 10px",
+                      fontSize: 11,
+                      fontWeight: 600,
+                      borderRadius: 6,
+                      border: "1px solid var(--border-tertiary)",
+                      background: "var(--bg-secondary)",
+                      color: "var(--fg-secondary)",
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    empresas →
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {drillSemana && (
+        <WeekDrillModal
+          semana={drillSemana}
+          campana={campana}
+          hitos={hitos.filter((h) => h.semana === drillSemana && (campana === "todas" || h.campana_evento === campana))}
+          onClose={() => setDrillSemana(null)}
+        />
+      )}
     </div>
+  );
+}
+
+// Orden = recorrido del funnel. dropoff/recycle no aparecen: Attio sobreescribe el stage
+// sin fecha histórica (se cubrirán con fm_weekly_snapshots hacia adelante).
+const HITOS_META: { key: WeeklyHito["hito"]; label: string }[] = [
+  { key: "inicio_prospeccion", label: "Inicio prospección" },
+  { key: "procesada", label: "Procesada (3+2)" },
+  { key: "qm_agendada", label: "QM agendada" },
+  { key: "qm_completada", label: "QM completada" },
+  { key: "demo", label: "Demo" },
+  { key: "won", label: "Won" },
+];
+
+// Drill de una semana: qué empresas alcanzaron cada hito y quién las trabajó.
+function WeekDrillModal({
+  semana,
+  campana,
+  hitos,
+  onClose,
+}: {
+  semana: string;
+  campana: string;
+  hitos: WeeklyHito[];
+  onClose: () => void;
+}) {
+  const counts = useMemo(() => {
+    const m = new Map<string, number>();
+    hitos.forEach((h) => m.set(h.hito, (m.get(h.hito) ?? 0) + 1));
+    return m;
+  }, [hitos]);
+
+  // Default: el primer hito con data (la pregunta típica es "¿qué se procesó?").
+  const [hito, setHito] = useState<WeeklyHito["hito"]>(() => {
+    if (counts.get("procesada")) return "procesada";
+    return HITOS_META.find((h) => counts.get(h.key))?.key ?? "procesada";
+  });
+
+  const filas = useMemo(
+    () =>
+      hitos
+        .filter((h) => h.hito === hito)
+        .sort((a, b) => (a.assigned_bdr_name ?? "zzz").localeCompare(b.assigned_bdr_name ?? "zzz") || (a.company_name ?? "").localeCompare(b.company_name ?? "")),
+    [hitos, hito]
+  );
+
+  // Resumen por persona (BDR asignado) para el hito elegido.
+  const porBdr = useMemo(() => {
+    const m = new Map<string, number>();
+    filas.forEach((f) => {
+      const k = f.assigned_bdr_name ?? "— sin BDR —";
+      m.set(k, (m.get(k) ?? 0) + 1);
+    });
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  }, [filas]);
+
+  return (
+    <Modal isOpen onClose={onClose} title={`Semana del ${fmtSemana(semana)}`}>
+      {/* Chips de hito */}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+        {HITOS_META.map((h) => {
+          const n = counts.get(h.key) ?? 0;
+          const active = hito === h.key;
+          return (
+            <button
+              key={h.key}
+              onClick={() => setHito(h.key)}
+              disabled={n === 0}
+              style={{
+                padding: "5px 10px",
+                fontSize: 12,
+                fontWeight: 600,
+                borderRadius: 8,
+                border: "1px solid var(--border-tertiary)",
+                cursor: n === 0 ? "default" : "pointer",
+                opacity: n === 0 ? 0.4 : 1,
+                background: active ? "var(--fg-primary)" : "var(--bg-primary)",
+                color: active ? "var(--bg-primary)" : "var(--fg-secondary)",
+              }}
+            >
+              {h.label} ({n})
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Quién lo hizo (BDR asignado) */}
+      {porBdr.length > 0 && (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+          {porBdr.map(([bdr, n]) => (
+            <span key={bdr} className="badge" style={{ background: "var(--bg-secondary)", color: "var(--fg-secondary)", fontSize: 11 }}>
+              {bdr}: <strong>{n}</strong>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {filas.length === 0 ? (
+        <div className="text-muted" style={{ padding: 16, textAlign: "center", fontSize: 13 }}>
+          Sin empresas con este hito en la semana.
+        </div>
+      ) : (
+        <div style={{ maxHeight: "55vh", overflowY: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid var(--border-tertiary)", textAlign: "left" }}>
+                <th style={thStyle}>Empresa</th>
+                {campana === "todas" && <th style={thStyle}>Campaña</th>}
+                <th style={thStyle}>BDR asignado</th>
+                <th style={thStyle}>Llamó (JustCall)</th>
+                {filas.some((f) => f.deal_name) && <th style={thStyle}>Deal</th>}
+                <th style={thRight}>Fecha</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filas.map((f, i) => {
+                const url = attioCompanyUrl(f.attio_company_id);
+                return (
+                  <tr key={`${f.attio_company_id}-${f.deal_name}-${i}`} style={{ borderBottom: "1px solid var(--border-tertiary)" }}>
+                    <td style={{ ...tdStyle, fontWeight: 600 }}>
+                      {url ? (
+                        <a href={url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--fg-primary)", textDecoration: "none" }}>
+                          {f.company_name ?? "— sin nombre —"}
+                        </a>
+                      ) : (
+                        f.company_name ?? "— sin nombre —"
+                      )}
+                    </td>
+                    {campana === "todas" && (
+                      <td style={tdStyle}>
+                        <span className="badge" style={{ background: "var(--bg-status-brand)", color: "var(--fg-status-brand)", fontSize: 10 }}>
+                          {f.campana_evento}
+                        </span>
+                      </td>
+                    )}
+                    <td style={{ ...tdStyle, color: f.assigned_bdr_name ? "var(--fg-secondary)" : "var(--fg-quaternary)" }}>
+                      {f.assigned_bdr_name ?? "— sin BDR —"}
+                    </td>
+                    <td style={{ ...tdStyle, color: "var(--fg-quaternary)", fontSize: 12 }}>{f.agentes ?? "—"}</td>
+                    {filas.some((x) => x.deal_name) && (
+                      <td style={{ ...tdStyle, color: "var(--fg-secondary)", fontSize: 12 }}>{f.deal_name ?? "—"}</td>
+                    )}
+                    <td style={{ ...tdRight, color: "var(--fg-secondary)", whiteSpace: "nowrap" }}>
+                      {new Date(f.fecha + "T12:00:00Z").toLocaleDateString("es-AR", { day: "2-digit", month: "short", timeZone: "UTC" })}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="text-muted" style={{ fontSize: 11, marginTop: 12 }}>
+        Fechas = actividad real del contacto o fecha de etapa del deal (nunca la fecha del evento). BDR = asignado actual en Attio.
+        &quot;Llamó&quot; = agente de JustCall (cobertura parcial, solo llamadas recientes). DropOff/Recycle no tienen fecha histórica —
+        se acumulan en snapshots semanales desde el 2026-07-28.
+      </div>
+    </Modal>
   );
 }
 
