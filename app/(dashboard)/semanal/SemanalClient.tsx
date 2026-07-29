@@ -502,7 +502,35 @@ export function SemanalClient({
           ) : (
             <>Todas las empresas asignadas de la selección y su estado actual. Filtrá por fechas para ver <strong>qué se le asignó a cada BDR en ese período</strong>.</>
           )}{" "}
-          Click en un BDR para ver sus empresas.
+          Click en un BDR (o elegilo en el desplegable) para ver sus empresas.
+        </div>
+
+        {/* Filtro por BDR */}
+        <div style={{ marginBottom: 12 }}>
+          <select
+            value={bdrScore ?? "todos"}
+            onChange={(e) => {
+              setBdrScore(e.target.value === "todos" ? null : e.target.value);
+              setPaginaBdr(0);
+            }}
+            style={{
+              padding: "6px 10px",
+              fontSize: 12,
+              fontWeight: 600,
+              borderRadius: 8,
+              border: "1px solid var(--border-tertiary)",
+              background: bdrScore ? "var(--fg-primary)" : "var(--bg-primary)",
+              color: bdrScore ? "var(--bg-primary)" : "var(--fg-secondary)",
+              maxWidth: 320,
+            }}
+          >
+            <option value="todos">Todos los BDRs ({scoreBdr.length})</option>
+            {scoreBdr.map(([bdr, s]) => (
+              <option key={bdr} value={bdr}>
+                {bdr} — {s.asignadas} asignadas
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* Scorecard */}
@@ -529,7 +557,9 @@ export function SemanalClient({
                   {totalScore.asignadas > 0 ? Math.round((totalScore.done / totalScore.asignadas) * 100) : 0}%
                 </td>
               </tr>
-              {scoreBdr.map(([bdr, s]) => {
+              {scoreBdr
+                .filter(([bdr]) => !bdrScore || bdr === bdrScore)
+                .map(([bdr, s]) => {
                 const active = bdrScore === bdr;
                 return (
                   <tr
