@@ -262,22 +262,35 @@ export async function fetchWeeklyHitos(): Promise<WeeklyHito[]> {
   return out;
 }
 
-// Trae TODAS las filas de fm_weekly_progress (~800 hoy; paginado por si crece).
-export async function fetchWeeklyProgress(): Promise<WeeklyProgress[]> {
+// Grano DIARIO (fm_daily_progress): permite filtros desde/hasta custom como el resto
+// del dashboard (feedback Ramiro 2026-07-28); el cliente agrega a semanas para los charts.
+export type DailyProgress = Omit<WeeklyProgress, "semana"> & { fecha: string };
+
+// Trae TODAS las filas de fm_daily_progress (~1.9k hoy; paginado por si crece).
+export async function fetchDailyProgress(): Promise<DailyProgress[]> {
   const PAGE = 1000;
-  const out: WeeklyProgress[] = [];
+  const out: DailyProgress[] = [];
   for (let from = 0; ; from += PAGE) {
     const { data } = await supabase
-      .from("fm_weekly_progress")
+      .from("fm_daily_progress")
       .select("*")
-      .order("semana")
+      .order("fecha")
       .order("campana_evento")
       .range(from, from + PAGE - 1);
-    const rows = (data ?? []) as WeeklyProgress[];
+    const rows = (data ?? []) as DailyProgress[];
     out.push(...rows);
     if (rows.length < PAGE) break;
   }
   return out;
+}
+
+// Fecha del evento por campaña (fm_campana_fechas) — para marcar el inicio del evento
+// en la pestaña Semanal y el shortcut "Desde el evento".
+export type CampanaFecha = { campana_evento: string; evento_fecha: string };
+
+export async function fetchCampanaFechas(): Promise<CampanaFecha[]> {
+  const { data } = await supabase.from("fm_campana_fechas").select("*");
+  return (data ?? []) as CampanaFecha[];
 }
 
 // Sección Seguimiento (fm_seguimiento_companies): funnel por Outbound Stage + scorecard
