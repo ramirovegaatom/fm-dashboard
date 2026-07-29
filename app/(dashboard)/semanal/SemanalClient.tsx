@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DailyProgress, WeeklyHito, CampanaFecha, BdrCompany } from "@/lib/supabase";
 import { StatCard } from "@/components/StatCard";
 import { DateFilter, DateRange } from "@/components/DateFilter";
@@ -48,7 +48,26 @@ const HITOS_META: { key: WeeklyHito["hito"]; label: string }[] = [
   { key: "won", label: "Won" },
 ];
 
-const FILAS_POR_PAGINA = 25;
+const FILAS_POR_PAGINA = 10;
+
+// Filas de la tabla semanal transpuesta (métrica por fila, semanas como columnas).
+const METRICAS_TABLA: {
+  key: keyof WeekAgg;
+  label: string;
+  color: string;
+  bold?: boolean;
+  money?: boolean;
+}[] = [
+  { key: "llamadas", label: "Llamadas", color: "var(--chart-linkedin)" },
+  { key: "whatsapps", label: "WhatsApps", color: "var(--chart-email)" },
+  { key: "empresas_procesadas", label: "Emp. procesadas", color: "var(--fg-status-brand)", bold: true },
+  { key: "qm_agendadas", label: "QM agend.", color: "var(--fg-status-info)" },
+  { key: "qm_completadas", label: "QM compl.", color: "var(--fg-status-info)" },
+  { key: "demos", label: "Demos", color: "var(--chart-partner)" },
+  { key: "wons", label: "Wons", color: "var(--fg-status-success)", bold: true },
+  { key: "mrr_won", label: "MRR", color: "var(--fg-status-success)", bold: true, money: true },
+  { key: "losts", label: "Losts", color: "var(--fg-quaternary)" },
+];
 
 // Celda heatmap: fondo del color de la métrica con intensidad ∝ valor / máximo de la
 // columna (la tabla semanal se lee de un vistazo sin perder el número exacto).
@@ -106,6 +125,8 @@ export function SemanalClient({
   const [bdrScore, setBdrScore] = useState<string | null>(null);
   const [buscaBdr, setBuscaBdr] = useState("");
   const [paginaBdr, setPaginaBdr] = useState(0);
+  // Tabla semanal transpuesta: arranca scrolleada al final (las semanas recientes).
+  const semTablaRef = useRef<HTMLDivElement>(null);
 
   const hoy = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const semanaActual = useMemo(() => mondayOf(hoy), [hoy]);
@@ -363,6 +384,10 @@ export function SemanalClient({
     () => empresasBdr.slice(paginaBdrActual * FILAS_POR_PAGINA, (paginaBdrActual + 1) * FILAS_POR_PAGINA),
     [empresasBdr, paginaBdrActual]
   );
+
+  useEffect(() => {
+    if (semTablaRef.current) semTablaRef.current.scrollLeft = semTablaRef.current.scrollWidth;
+  }, [semanas]);
 
   function filtrarSemana(semana: string) {
     const from = new Date(semana + "T00:00:00");
@@ -829,65 +854,62 @@ export function SemanalClient({
         </div>
       </div>
 
-      {/* Tabla semanal (click en la semana = filtrar ese rango) */}
+      {/* Tabla semanal transpuesta: métricas como filas, semanas como columnas → altura
+          fija (9 filas) y scroll HORIZONTAL, no vertical. Click en una semana = filtrarla. */}
       <div className="section-title">Detalle por semana ({semanas.length})</div>
-      <div className="card" style={{ padding: 0, overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-          <thead>
-            <tr style={{ borderBottom: "1px solid var(--border-tertiary)", textAlign: "left" }}>
-              <th style={thStyle}>Semana</th>
-              <th style={thRight}>Llamadas</th>
-              <th style={thRight}>WhatsApps</th>
-              <th style={thRight}>Emp. procesadas</th>
-              <th style={thRight}>QM agend.</th>
-              <th style={thRight}>QM compl.</th>
-              <th style={thRight}>Demos</th>
-              <th style={thRight}>Wons</th>
-              <th style={thRight}>MRR</th>
-              <th style={thRight}>Losts</th>
-            </tr>
-          </thead>
-          <tbody>
-            {[...semanas].reverse().map((s) => (
-              <tr key={s.semana} style={{ borderBottom: "1px solid var(--border-tertiary)" }}>
-                <td style={{ ...tdStyle, fontWeight: 600 }}>
-                  <button
-                    onClick={() => filtrarSemana(s.semana)}
-                    title="Filtrar esta semana"
-                    style={{
-                      background: "transparent",
-                      border: "none",
-                      padding: 0,
-                      fontSize: 13,
-                      fontWeight: 600,
-                      color: "var(--fg-primary)",
-                      cursor: "pointer",
-                      textDecoration: "underline dotted",
-                      textUnderlineOffset: 3,
-                    }}
-                  >
-                    {fmtSemana(s.semana)}
-                  </button>
-                </td>
-                <HeatCell valor={s.llamadas} max={colMax.llamadas} color="var(--chart-linkedin)" />
-                <HeatCell valor={s.whatsapps} max={colMax.whatsapps} color="var(--chart-email)" />
-                <HeatCell valor={s.empresas_procesadas} max={colMax.empresas_procesadas} color="var(--fg-status-brand)" bold />
-                <HeatCell valor={s.qm_agendadas} max={colMax.qm_agendadas} color="var(--fg-status-info)" />
-                <HeatCell valor={s.qm_completadas} max={colMax.qm_completadas} color="var(--fg-status-info)" />
-                <HeatCell valor={s.demos} max={colMax.demos} color="var(--chart-partner)" />
-                <HeatCell valor={s.wons} max={colMax.wons} color="var(--fg-status-success)" bold />
-                <HeatCell
-                  valor={Number(s.mrr_won)}
-                  max={colMax.mrr_won}
-                  color="var(--fg-status-success)"
-                  bold
-                  render={(n) => formatCurrency(n)}
-                />
-                <HeatCell valor={s.losts} max={colMax.losts} color="var(--fg-quaternary)" />
+      <div className="card" style={{ padding: 0 }}>
+        <div ref={semTablaRef} style={{ overflowX: "auto" }}>
+          <table style={{ borderCollapse: "collapse", fontSize: 12, width: "100%" }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid var(--border-tertiary)" }}>
+                <th style={{ ...thStyle, ...stickyCol, textAlign: "left" }}>Métrica</th>
+                {semanas.map((s) => (
+                  <th key={s.semana} style={{ ...thStyle, padding: "8px 6px", textAlign: "right", whiteSpace: "nowrap" }}>
+                    <button
+                      onClick={() => filtrarSemana(s.semana)}
+                      title="Filtrar esta semana"
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        padding: 0,
+                        fontSize: 10,
+                        fontWeight: 600,
+                        color: "var(--fg-quaternary)",
+                        cursor: "pointer",
+                        textDecoration: "underline dotted",
+                        textUnderlineOffset: 3,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.04em",
+                      }}
+                    >
+                      {fmtSemana(s.semana)}
+                    </button>
+                  </th>
+                ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {METRICAS_TABLA.map((m) => (
+                <tr key={m.key} style={{ borderBottom: "1px solid var(--border-tertiary)" }}>
+                  <th style={{ ...tdStyle, ...stickyCol, textAlign: "left", fontSize: 12, fontWeight: 600, color: "var(--fg-secondary)", whiteSpace: "nowrap" }}>
+                    {m.label}
+                  </th>
+                  {semanas.map((s) => (
+                    <HeatCell
+                      key={s.semana}
+                      valor={Number(s[m.key])}
+                      max={Number(colMax[m.key as keyof typeof colMax])}
+                      color={m.color}
+                      bold={m.bold}
+                      render={m.money ? (n) => formatCurrency(n) : undefined}
+                      compact
+                    />
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
@@ -1022,22 +1044,33 @@ function HeatCell({
   color,
   bold,
   render,
+  compact,
 }: {
   valor: number;
   max: number;
   color: string;
   bold?: boolean;
   render?: (n: number) => string;
+  compact?: boolean;
 }) {
+  const base = compact ? { ...tdRight, padding: "7px 6px", whiteSpace: "nowrap" as const } : tdRight;
   if (valor <= 0) {
-    return <td style={{ ...tdRight, color: "var(--border-tertiary)" }}>·</td>;
+    return <td style={{ ...base, color: "var(--border-tertiary)" }}>·</td>;
   }
   return (
-    <td style={{ ...tdRight, ...heatStyle(valor, max, color), fontWeight: bold ? 600 : undefined }}>
+    <td style={{ ...base, ...heatStyle(valor, max, color), fontWeight: bold ? 600 : undefined }}>
       {render ? render(valor) : valor.toLocaleString("es-AR")}
     </td>
   );
 }
+
+// Primera columna fija de la tabla transpuesta (los labels no se van con el scroll).
+const stickyCol: React.CSSProperties = {
+  position: "sticky",
+  left: 0,
+  background: "var(--bg-primary)",
+  zIndex: 1,
+};
 
 const pagBtnStyle: React.CSSProperties = {
   padding: "5px 12px",
