@@ -284,6 +284,35 @@ export async function fetchDailyProgress(): Promise<DailyProgress[]> {
   return out;
 }
 
+// Calendario de eventos FUTUROS (fm_upcoming_events) — proyecto FM Events Calendar.
+// Fuente de verdad de "qué se viene"; el equipo FM carga/edita desde la pestaña. 2026-07-29.
+export type UpcomingEvent = {
+  id: string;
+  nombre: string;
+  fecha: string; // YYYY-MM-DD
+  fecha_fin: string | null; // eventos multi-día
+  tipo: "Presencial" | "Virtual" | "Third Party";
+  industria: string | null;
+  pais: string | null;
+  territorio: "Norte" | "Sur" | "Brasil" | null;
+  ciudad: string | null;
+  responsable: string | null;
+  notas: string | null;
+  estado: "Planificado" | "Confirmado" | "Cancelado";
+  campana_evento: string | null; // link al tracking (Attio/Luma) cuando exista
+  created_at: string;
+  updated_at: string;
+  updated_by: string | null;
+};
+
+export async function fetchUpcomingEvents(): Promise<UpcomingEvent[]> {
+  const { data } = await supabase
+    .from("fm_upcoming_events")
+    .select("*")
+    .order("fecha");
+  return (data ?? []) as UpcomingEvent[];
+}
+
 // Seguimiento por BDR (fm_bdr_companies): una fila por empresa×campaña con la fecha de
 // asignación del BDR (Attio active_from, 100% cobertura) y el estado por ACTIVIDADES.
 // Responde: cuándo se asignó X empresa a X persona, cuántas procesó / en proceso / sin
