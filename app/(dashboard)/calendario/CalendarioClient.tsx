@@ -2,10 +2,10 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { UpcomingEvent } from "@/lib/supabase";
+import { UpcomingEvent, EventAccionable, EventPrep } from "@/lib/supabase";
 import { Modal } from "@/components/Modal";
 import { PAISES_POR_TERRITORIO, defaultTerritorio } from "@/lib/territories";
-import { saveUpcomingEvent, deleteUpcomingEvent, UpcomingEventInput } from "./actions";
+import { saveUpcomingEvent, deleteUpcomingEvent, updateAccionable, UpcomingEventInput } from "./actions";
 
 // 2026-07-29 — FM Events Calendar Fase 1: calendario de eventos FUTUROS.
 // Vista mensual con los eventos en su día + alta/edición manual del equipo FM.
@@ -36,7 +36,36 @@ function fmtFecha(fecha: string) {
   return new Date(fecha + "T12:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-export function CalendarioClient({ eventos }: { eventos: UpcomingEvent[] }) {
+// Orden canónico de los accionables (matriz de la reunión 2026-07-31).
+const ORDEN_ACCIONABLES = ["base_datos", "invitaciones", "inv_ventas", "pauta", "contenido", "handoff_cande", "post_listas"];
+
+function prepColor(pct: number): string {
+  if (pct >= 80) return "var(--fg-status-success)";
+  if (pct >= 40) return "var(--fg-status-warning)";
+  return "var(--fg-status-error)";
+}
+
+export function CalendarioClient({
+  eventos,
+  accionables,
+  prep,
+}: {
+  eventos: UpcomingEvent[];
+  accionables: EventAccionable[];
+  prep: EventPrep[];
+}) {
+  const prepByEvent = useMemo(() => new Map(prep.map((p) => [p.event_id, p])), [prep]);
+  const accionablesByEvent = useMemo(() => {
+    const m = new Map<string, EventAccionable[]>();
+    for (const a of accionables) m.set(a.event_id, [...(m.get(a.event_id) ?? []), a]);
+    for (const list of m.values()) {
+      list.sort(
+        (x, y) =>
+          ORDEN_ACCIONABLES.indexOf(x.template_clave ?? "") - ORDEN_ACCIONABLES.indexOf(y.template_clave ?? "")
+      );
+    }
+    return m;
+  }, [accionables]);
   const hoy = useMemo(() => new Date(), []);
   const hoyIso = isoDate(hoy);
   const [mes, setMes] = useState(() => new Date(hoy.getFullYear(), hoy.getMonth(), 1));
@@ -249,6 +278,7 @@ export function CalendarioClient({ eventos }: { eventos: UpcomingEvent[] }) {
                 <th style={thStyle}>País / Territorio</th>
                 <th style={thStyle}>Responsable</th>
                 <th style={thStyle}>Metas</th>
+                <th style={thStyle}>Preparación</th>
                 <th style={thStyle}>Estado</th>
                 <th style={thStyle} />
               </tr>
@@ -275,6 +305,29 @@ export function CalendarioClient({ eventos }: { eventos: UpcomingEvent[] }) {
                     {e.meta_qms != null || e.meta_mrr != null
                       ? `${e.meta_qms ?? "—"} QMs · $${Number(e.meta_mrr ?? 0).toLocaleString("es-AR")}`
                       : "—"}
+                  </td>
+                  <td style={{ ...tdStyle, minWidth: 130 }}>
+                    {(() => {
+                      const p = prepByEvent.get(e.id);
+                      if (!p) return <span className="text-muted">—</span>;
+                      return (
+                        <div title={`${p.completados}/${p.accionables} accionables completados`}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <div style={{ flex: 1, height: 6, borderRadius: 999, background: "var(--bg-secondary)", overflow: "hidden" }}>
+                              <div style={{ width: `${p.avance_pct}%`, height: "100%", background: prepColor(p.avance_pct) }} />
+                            </div>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: prepColor(p.avance_pct), minWidth: 32, textAlign: "right" }}>
+                              {p.avance_pct}%
+                            </span>
+                          </div>
+                          {p.pendientes_check > 0 && (
+                            <div style={{ fontSize: 10, color: "var(--fg-status-warning)", marginTop: 2 }}>
+                              ⚠ {p.pendientes_check} por confirmar
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td style={tdStyle}>
                     <span
@@ -306,6 +359,7 @@ export function CalendarioClient({ eventos }: { eventos: UpcomingEvent[] }) {
       {editing && (
         <EventForm
           evento={editing === "nuevo" ? null : editing}
+          accionables={editing === "nuevo" ? [] : accionablesByEvent.get(editing.id) ?? []}
           fechaPrefill={fechaPrefill}
           onClose={() => {
             setEditing(null);
@@ -320,10 +374,12 @@ export function CalendarioClient({ eventos }: { eventos: UpcomingEvent[] }) {
 // Alta/edición de un evento del calendario.
 function EventForm({
   evento,
+  accionables,
   fechaPrefill,
   onClose,
 }: {
   evento: UpcomingEvent | null;
+  accionables: EventAccionable[];
   fechaPrefill: string | null;
   onClose: () => void;
 }) {
@@ -522,6 +578,8 @@ function EventForm({
         </div>
       )}
 
+      {evento && accionables.length > 0 && <AccionablesSection accionables={accionables} />}
+
       {error && (
         <div style={{ marginTop: 12, fontSize: 12, fontWeight: 600, color: "var(--fg-status-error)" }}>{error}</div>
       )}
@@ -574,6 +632,124 @@ function EventForm({
     </Modal>
   );
 }
+
+// Preparación del evento: los accionables por rol con su barra de avance.
+// La barra se llena desde acá o (Fase 3) respondiendo al bot de Slack.
+function AccionablesSection({ accionables }: { accionables: EventAccionable[] }) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  // Optimista: reflejar el cambio ya, el refresh confirma.
+  const [local, setLocal] = useState<Record<string, Partial<EventAccionable>>>({});
+
+  function patch(id: string, p: { progreso?: number; aplica?: boolean | null }) {
+    setLocal((prev) => ({ ...prev, [id]: { ...prev[id], ...p } }));
+    startTransition(async () => {
+      try {
+        await updateAccionable(id, p);
+        router.refresh();
+      } catch {
+        setLocal((prev) => ({ ...prev, [id]: {} }));
+      }
+    });
+  }
+
+  const efectivos = accionables.map((a) => ({ ...a, ...local[a.id] }));
+  const activos = efectivos.filter((a) => a.aplica !== false);
+  const avance = activos.length > 0 ? Math.round(activos.reduce((s, a) => s + a.progreso, 0) / activos.length) : 0;
+
+  return (
+    <div style={{ marginTop: 20, borderTop: "1px solid var(--border-tertiary)", paddingTop: 16, opacity: isPending ? 0.7 : 1 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: "var(--fg-quaternary)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+          Preparación del evento
+        </span>
+        <div style={{ flex: 1, height: 8, borderRadius: 999, background: "var(--bg-secondary)", overflow: "hidden" }}>
+          <div style={{ width: `${avance}%`, height: "100%", background: prepColor(avance), transition: "width 0.2s" }} />
+        </div>
+        <span style={{ fontSize: 13, fontWeight: 700, color: prepColor(avance) }}>{avance}%</span>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {efectivos.map((a) => {
+          const noAplica = a.aplica === false;
+          const pendienteCheck = a.aplica === null;
+          return (
+            <div
+              key={a.id}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                padding: "8px 10px",
+                borderRadius: 8,
+                background: "var(--bg-secondary)",
+                opacity: noAplica ? 0.5 : 1,
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, textDecoration: noAplica ? "line-through" : "none" }}>{a.nombre}</div>
+                <div className="text-muted" style={{ fontSize: 11 }}>
+                  {a.responsable ?? "— sin responsable —"}
+                  {a.fecha_aviso ? ` · aviso ${fmtFecha(a.fecha_aviso)}` : ""}
+                </div>
+              </div>
+
+              {pendienteCheck ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: "var(--fg-status-warning)", whiteSpace: "nowrap" }}>¿Aplica?</span>
+                  <button onClick={() => patch(a.id, { aplica: true })} style={checkBtn} title="Sí, aplica a este evento">✓ Sí</button>
+                  <button onClick={() => patch(a.id, { aplica: false })} style={checkBtn} title="No aplica a este evento">✗ No</button>
+                </div>
+              ) : noAplica ? (
+                <button onClick={() => patch(a.id, { aplica: null })} style={{ ...checkBtn, whiteSpace: "nowrap" }} title="Volver a considerar">
+                  no aplica · deshacer
+                </button>
+              ) : (
+                <>
+                  <div style={{ width: 90, height: 6, borderRadius: 999, background: "var(--bg-primary)", overflow: "hidden" }}>
+                    <div style={{ width: `${a.progreso}%`, height: "100%", background: prepColor(a.progreso), transition: "width 0.2s" }} />
+                  </div>
+                  <select
+                    value={a.progreso}
+                    onChange={(e) => patch(a.id, { progreso: Number(e.target.value) })}
+                    style={{
+                      padding: "4px 6px",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      borderRadius: 6,
+                      border: "1px solid var(--border-tertiary)",
+                      background: "var(--bg-primary)",
+                      color: a.progreso === 100 ? "var(--fg-status-success)" : "var(--fg-primary)",
+                    }}
+                  >
+                    {Array.from({ length: 11 }, (_, i) => i * 10).map((v) => (
+                      <option key={v} value={v}>{v === 100 ? "✓ 100%" : `${v}%`}</option>
+                    ))}
+                  </select>
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="text-muted" style={{ fontSize: 11, marginTop: 10 }}>
+        El avance se actualiza acá o respondiendo al bot de Slack (próximamente). Los accionables con &quot;¿Aplica?&quot; esperan el check de Mario.
+      </div>
+    </div>
+  );
+}
+
+const checkBtn: React.CSSProperties = {
+  padding: "4px 10px",
+  fontSize: 11,
+  fontWeight: 600,
+  borderRadius: 6,
+  border: "1px solid var(--border-tertiary)",
+  background: "var(--bg-primary)",
+  color: "var(--fg-secondary)",
+  cursor: "pointer",
+};
 
 const linkChip: React.CSSProperties = {
   fontSize: 12,

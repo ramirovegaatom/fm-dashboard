@@ -323,6 +323,46 @@ export async function fetchUpcomingEvents(): Promise<UpcomingEvent[]> {
   return (data ?? []) as UpcomingEvent[];
 }
 
+// Accionables por evento (fm_event_accionables) — Fase 2, reunión Mario/Martín 2026-07-31.
+// Tracking MACRO por área: la barra se llena con updates de status (dashboard o bot Slack).
+// aplica: null = condicional pendiente del check de Mario (ej: pauta).
+export type EventAccionable = {
+  id: string;
+  event_id: string;
+  template_clave: string | null;
+  nombre: string;
+  rol: string;
+  responsable: string | null;
+  slack_user_id: string | null;
+  fecha_aviso: string | null;
+  aplica: boolean | null;
+  progreso: number; // 0-100
+  asana_task_gid: string | null;
+  ultimo_update_at: string | null;
+  ultimo_update_por: string | null;
+};
+
+export type EventPrep = {
+  event_id: string;
+  accionables: number;
+  completados: number;
+  avance_pct: number;
+  pendientes_check: number;
+};
+
+export async function fetchEventAccionables(): Promise<EventAccionable[]> {
+  const { data } = await supabase
+    .from("fm_event_accionables")
+    .select("*")
+    .order("fecha_aviso");
+  return (data ?? []) as EventAccionable[];
+}
+
+export async function fetchEventPrep(): Promise<EventPrep[]> {
+  const { data } = await supabase.from("fm_event_prep").select("*");
+  return (data ?? []) as EventPrep[];
+}
+
 // Seguimiento por BDR (fm_bdr_companies): una fila por empresa×campaña con la fecha de
 // asignación del BDR (Attio active_from, 100% cobertura) y el estado por ACTIVIDADES.
 // Responde: cuándo se asignó X empresa a X persona, cuántas procesó / en proceso / sin

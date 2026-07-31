@@ -76,3 +76,31 @@ export async function deleteUpcomingEvent(id: string) {
   revalidatePath("/calendario");
   return { success: true };
 }
+
+// Update de un accionable (progreso 0-100, check aplica/no-aplica, responsable).
+// El cambio de progreso queda en el historial (misma tabla que llenará el bot de Slack).
+export async function updateAccionable(
+  id: string,
+  patch: { progreso?: number; aplica?: boolean | null; responsable?: string | null }
+) {
+  if (patch.progreso !== undefined && (patch.progreso < 0 || patch.progreso > 100)) {
+    throw new Error("Progreso inválido");
+  }
+  const row: Record<string, unknown> = { ...patch };
+  if (patch.progreso !== undefined) {
+    row.ultimo_update_at = new Date().toISOString();
+    row.ultimo_update_por = "dashboard";
+  }
+  const { error } = await supabase.from("fm_event_accionables").update(row).eq("id", id);
+  if (error) throw new Error(error.message);
+
+  if (patch.progreso !== undefined) {
+    await supabase.from("fm_accionable_updates").insert({
+      accionable_id: id,
+      progreso: patch.progreso,
+      fuente: "dashboard",
+    });
+  }
+  revalidatePath("/calendario");
+  return { success: true };
+}
