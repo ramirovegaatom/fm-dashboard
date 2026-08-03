@@ -41,6 +41,48 @@ type Accionable = {
 
 const hoy = () => new Date().toISOString().slice(0, 10);
 
+// slack_user_id admite varios destinatarios separados por coma (ej: Jorge y Gustavo).
+function destinatarios(ids: string | null): string[] {
+  return (ids ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+// Diagnóstico: verifica el token y lista los miembros humanos del workspace (id + nombre)
+// para mapear responsables → slack_user_id. No expone el token.
+async function faseDiag() {
+  if (!SLACK_TOKEN) return { ok: false, nota: "SLACK_BOT_TOKEN no configurado" };
+  const auth = await fetch("https://slack.com/api/auth.test", {
+    headers: { Authorization: `Bearer ${SLACK_TOKEN}` },
+  }).then((r) => r.json());
+  if (!auth.ok) return { ok: false, auth_error: auth.error };
+
+  const members: { id: string; name: string; real_name: string }[] = [];
+  let cursor = "";
+  do {
+    const res = await fetch(`https://slack.com/api/users.list?limit=200${cursor ? `&cursor=${cursor}` : ""}`, {
+      headers: { Authorization: `Bearer ${SLACK_TOKEN}` },
+    }).then((r) => r.json());
+    if (!res.ok) return { ok: false, users_error: res.error };
+    for (const m of res.members ?? []) {
+      if (!m.deleted && !m.is_bot && m.id !== "USLACKBOT") {
+        members.push({ id: m.id, name: m.name, real_name: m.profile?.real_name ?? "" });
+      }
+    }
+    cursor = res.response_metadata?.next_cursor ?? "";
+  } while (cursor);
+
+  return { ok: true, team: auth.team, bot_user: auth.user, miembros: members };
+}
+
+// Mensaje de prueba a un usuario puntual (?phase=test&user=U012345).
+async function faseTest(userId: string) {
+  if (!SLACK_TOKEN) return { ok: false, nota: "SLACK_BOT_TOKEN no configurado" };
+  const r = await slackPost(
+    userId,
+    ":wave: *Prueba del bot de eventos de Field Marketing.*\nSi ves este mensaje, el bot quedó conectado — los avisos de eventos y pedidos de status van a llegar por acá."
+  );
+  return { ok: r.ok, detalle: r.detalle };
+}
+
 // Aviso inicial: accionables cuya fecha_aviso ya llegó, de eventos vigentes, sin aviso previo.
 async function faseAvisos() {
   const { data } = await supabase
@@ -66,7 +108,8 @@ async function faseAvisos() {
 
   let enviadosOk = 0;
   for (const a of pendientes) {
-    if (!a.slack_user_id) {
+    const dest = destinatarios(a.slack_user_id);
+    if (dest.length === 0) {
       await supabase.from("fm_slack_notifications").insert({
         event_id: a.event_id, accionable_id: a.id, tipo: "aviso_evento",
         destinatario: a.responsable, ok: false, detalle: "sin slack_user_id",
@@ -80,12 +123,17 @@ async function faseAvisos() {
       `*${e.nombre}* — ${fmtFecha(e.fecha)} · ${e.industria ?? "multisector"} · ${e.territorio ?? ""} (${lugar})\n\n` +
       `Tu accionable: *${a.nombre}*\n` +
       `Cuando avances, actualizá el estado desde el mensaje de seguimiento o en el dashboard.`;
-    const r = await slackPost(a.slack_user_id, texto);
+    let okTodos = true;
+    let detalle: string | null = null;
+    for (const d of dest) {
+      const r = await slackPost(d, texto);
+      if (!r.ok) { okTodos = false; detalle = r.detalle; }
+    }
     await supabase.from("fm_slack_notifications").insert({
       event_id: a.event_id, accionable_id: a.id, tipo: "aviso_evento",
-      destinatario: a.responsable, ok: r.ok, detalle: r.detalle,
+      destinatario: a.responsable, ok: okTodos, detalle,
     });
-    if (r.ok) enviadosOk++;
+    if (okTodos) enviadosOk++;
   }
   return { fase: "avisos", enviados: enviadosOk, pendientes: pendientes.length };
 }
@@ -129,7 +177,8 @@ async function faseStatus() {
 
   let enviadosOk = 0;
   for (const a of pendientes) {
-    if (!a.slack_user_id) continue;
+    const dest = destinatarios(a.slack_user_id);
+    if (dest.length === 0) continue;
     const e = a.fm_upcoming_events;
     const blocks = [
       {
@@ -149,12 +198,17 @@ async function faseStatus() {
         },
       },
     ];
-    const r = await slackPost(a.slack_user_id, `¿Cómo vas con "${a.nombre}" para ${e.nombre}?`, blocks);
+    let okTodos = true;
+    let detalle: string | null = null;
+    for (const d of dest) {
+      const r = await slackPost(d, `¿Cómo vas con "${a.nombre}" para ${e.nombre}?`, blocks);
+      if (!r.ok) { okTodos = false; detalle = r.detalle; }
+    }
     await supabase.from("fm_slack_notifications").insert({
       event_id: a.event_id, accionable_id: a.id, tipo: "pedido_status",
-      destinatario: a.responsable, ok: r.ok, detalle: r.detalle,
+      destinatario: a.responsable, ok: okTodos, detalle,
     });
-    if (r.ok) enviadosOk++;
+    if (okTodos) enviadosOk++;
   }
   return { fase: "status", enviados: enviadosOk, pendientes: pendientes.length };
 }
@@ -163,7 +217,11 @@ Deno.serve(async (req: Request) => {
   const url = new URL(req.url);
   const phase = url.searchParams.get("phase") ?? "avisos";
   try {
-    const result = phase === "status" ? await faseStatus() : await faseAvisos();
+    let result: unknown;
+    if (phase === "status") result = await faseStatus();
+    else if (phase === "diag") result = await faseDiag();
+    else if (phase === "test") result = await faseTest(url.searchParams.get("user") ?? "");
+    else result = await faseAvisos();
     return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
   } catch (e) {
     return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: { "Content-Type": "application/json" } });
