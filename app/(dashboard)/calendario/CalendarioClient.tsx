@@ -36,6 +36,24 @@ function fmtFecha(fecha: string) {
   return new Date(fecha + "T12:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+// Fecha compacta para la tabla ("06 ago", "14–15 ago", "28 ago – 02 sep"); año solo si no es el actual.
+function fmtCorta(fecha: string, conAnio: boolean) {
+  const d = new Date(fecha + "T12:00:00");
+  const s = d.toLocaleDateString("es-AR", { day: "2-digit", month: "short" });
+  return conAnio ? `${s} ${d.getFullYear()}` : s;
+}
+
+function fmtRango(fecha: string, fin: string | null) {
+  const conAnio = new Date(fecha + "T12:00:00").getFullYear() !== new Date().getFullYear();
+  if (!fin || fin === fecha) return fmtCorta(fecha, conAnio);
+  const d1 = new Date(fecha + "T12:00:00");
+  const d2 = new Date(fin + "T12:00:00");
+  if (d1.getMonth() === d2.getMonth() && d1.getFullYear() === d2.getFullYear()) {
+    return `${String(d1.getDate()).padStart(2, "0")}–${fmtCorta(fin, conAnio)}`;
+  }
+  return `${fmtCorta(fecha, false)} – ${fmtCorta(fin, conAnio)}`;
+}
+
 // Orden canónico de los accionables (matriz de la reunión 2026-07-31).
 const ORDEN_ACCIONABLES = ["base_datos", "invitaciones", "inv_ventas", "pauta", "contenido", "handoff_cande", "post_listas"];
 
@@ -267,90 +285,92 @@ export function CalendarioClient({
           No hay eventos futuros cargados. Agregá el primero con &quot;+ Nuevo evento&quot;.
         </div>
       ) : (
-        <div className="card" style={{ padding: 0, overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+          {/* Compacta a 6 columnas para que entre SIN scroll horizontal: el tipo es el punto
+              de color junto al nombre (leyenda arriba) y industria/país/responsable van como
+              subtítulo del evento. Fila entera clickeable = editar. */}
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, tableLayout: "fixed" }}>
             <thead>
               <tr style={{ borderBottom: "1px solid var(--border-tertiary)", textAlign: "left" }}>
-                <th style={thStyle}>Evento</th>
-                <th style={thStyle}>Fecha</th>
-                <th style={thStyle}>Tipo</th>
-                <th style={thStyle}>Industria</th>
-                <th style={thStyle}>País / Territorio</th>
-                <th style={thStyle}>Responsable</th>
-                <th style={thStyle}>Metas</th>
-                <th style={thStyle}>Preparación</th>
-                <th style={thStyle}>Estado</th>
-                <th style={thStyle} />
+                <th style={{ ...thStyle, width: "34%" }}>Evento</th>
+                <th style={{ ...thStyle, width: "13%" }}>Fecha</th>
+                <th style={{ ...thStyle, width: "15%" }}>Metas</th>
+                <th style={{ ...thStyle, width: "20%" }}>Preparación</th>
+                <th style={{ ...thStyle, width: "12%" }}>Estado</th>
+                <th style={{ ...thStyle, width: "6%" }} />
               </tr>
             </thead>
             <tbody>
-              {proximos.map((e) => (
-                <tr key={e.id} style={{ borderBottom: "1px solid var(--border-tertiary)" }}>
-                  <td style={{ ...tdStyle, fontWeight: 600 }}>{e.nombre}</td>
-                  <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>
-                    {fmtFecha(e.fecha)}{e.fecha_fin ? ` → ${fmtFecha(e.fecha_fin)}` : ""}
-                  </td>
-                  <td style={tdStyle}>
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: TIPO_COLOR[e.tipo] }}>
-                      <span style={{ width: 7, height: 7, borderRadius: 999, background: TIPO_COLOR[e.tipo] }} />
-                      {e.tipo}
-                    </span>
-                  </td>
-                  <td style={{ ...tdStyle, color: "var(--fg-secondary)" }}>{e.industria ?? "—"}</td>
-                  <td style={{ ...tdStyle, color: "var(--fg-secondary)" }}>
-                    {e.pais ?? "—"}{e.territorio ? ` · ${e.territorio}` : ""}
-                  </td>
-                  <td style={{ ...tdStyle, color: "var(--fg-secondary)" }}>{e.responsable ?? "—"}</td>
-                  <td style={{ ...tdStyle, color: "var(--fg-secondary)", fontSize: 12, whiteSpace: "nowrap" }}>
-                    {e.meta_qms != null || e.meta_mrr != null
-                      ? `${e.meta_qms ?? "—"} QMs · $${Number(e.meta_mrr ?? 0).toLocaleString("es-AR")}`
-                      : "—"}
-                  </td>
-                  <td style={{ ...tdStyle, minWidth: 130 }}>
-                    {(() => {
-                      const p = prepByEvent.get(e.id);
-                      if (!p) return <span className="text-muted">—</span>;
-                      return (
-                        <div title={`${p.completados}/${p.accionables} accionables completados`}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                            <div style={{ flex: 1, height: 6, borderRadius: 999, background: "var(--bg-secondary)", overflow: "hidden" }}>
-                              <div style={{ width: `${p.avance_pct}%`, height: "100%", background: prepColor(p.avance_pct) }} />
-                            </div>
-                            <span style={{ fontSize: 11, fontWeight: 700, color: prepColor(p.avance_pct), minWidth: 32, textAlign: "right" }}>
-                              {p.avance_pct}%
-                            </span>
-                          </div>
-                          {p.pendientes_check > 0 && (
-                            <div style={{ fontSize: 10, color: "var(--fg-status-warning)", marginTop: 2 }}>
-                              ⚠ {p.pendientes_check} por confirmar
-                            </div>
-                          )}
+              {proximos.map((e) => {
+                const sub = [e.industria, [e.pais, e.territorio].filter(Boolean).join(" · "), e.responsable]
+                  .filter(Boolean)
+                  .join("  ·  ");
+                return (
+                  <tr
+                    key={e.id}
+                    onClick={() => setEditing(e)}
+                    style={{ borderBottom: "1px solid var(--border-tertiary)", cursor: "pointer" }}
+                  >
+                    <td style={tdStyle}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                        <span title={e.tipo} style={{ width: 8, height: 8, borderRadius: 999, background: TIPO_COLOR[e.tipo], flexShrink: 0 }} />
+                        <span style={{ fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.nombre}</span>
+                      </div>
+                      {sub && (
+                        <div className="text-muted" style={{ fontSize: 11, marginTop: 2, paddingLeft: 16, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {sub}
                         </div>
-                      );
-                    })()}
-                  </td>
-                  <td style={tdStyle}>
-                    <span
-                      className="badge"
-                      style={{
-                        background: e.estado === "Confirmado" ? "var(--bg-status-brand)" : "var(--bg-secondary)",
-                        color: e.estado === "Confirmado" ? "var(--fg-status-brand)" : "var(--fg-secondary)",
-                        fontSize: 11,
-                      }}
-                    >
-                      {e.estado}
-                    </span>
-                  </td>
-                  <td style={{ ...tdStyle, textAlign: "right" }}>
-                    <button
-                      onClick={() => setEditing(e)}
-                      style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, borderRadius: 6, border: "1px solid var(--border-tertiary)", background: "var(--bg-secondary)", color: "var(--fg-secondary)", cursor: "pointer" }}
-                    >
+                      )}
+                    </td>
+                    <td style={{ ...tdStyle, whiteSpace: "nowrap", color: "var(--fg-secondary)" }}>
+                      {fmtRango(e.fecha, e.fecha_fin)}
+                    </td>
+                    <td style={{ ...tdStyle, color: "var(--fg-secondary)", fontSize: 12, whiteSpace: "nowrap" }}>
+                      {e.meta_qms != null || e.meta_mrr != null
+                        ? `${e.meta_qms ?? "—"} QMs · $${Number(e.meta_mrr ?? 0).toLocaleString("es-AR")}`
+                        : "—"}
+                    </td>
+                    <td style={tdStyle}>
+                      {(() => {
+                        const p = prepByEvent.get(e.id);
+                        if (!p) return <span className="text-muted">—</span>;
+                        return (
+                          <div title={`${p.completados}/${p.accionables} accionables completados`}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <div style={{ flex: 1, height: 6, borderRadius: 999, background: "var(--bg-secondary)", overflow: "hidden" }}>
+                                <div style={{ width: `${p.avance_pct}%`, height: "100%", background: prepColor(p.avance_pct) }} />
+                              </div>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: prepColor(p.avance_pct), minWidth: 32, textAlign: "right" }}>
+                                {p.avance_pct}%
+                              </span>
+                            </div>
+                            {p.pendientes_check > 0 && (
+                              <div style={{ fontSize: 10, color: "var(--fg-status-warning)", marginTop: 2 }}>
+                                ⚠ {p.pendientes_check} por confirmar
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </td>
+                    <td style={tdStyle}>
+                      <span
+                        className="badge"
+                        style={{
+                          background: e.estado === "Confirmado" ? "var(--bg-status-brand)" : "var(--bg-secondary)",
+                          color: e.estado === "Confirmado" ? "var(--fg-status-brand)" : "var(--fg-secondary)",
+                          fontSize: 11,
+                        }}
+                      >
+                        {e.estado}
+                      </span>
+                    </td>
+                    <td style={{ ...tdStyle, textAlign: "right", color: "var(--fg-quaternary)", fontSize: 12 }}>
                       editar →
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
