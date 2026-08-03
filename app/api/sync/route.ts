@@ -25,21 +25,24 @@ export async function POST() {
 
   // phase=tagged trae deals con campana_evento mapeado en fm_event_mapping
   // (aunque su empresa no esté en la list events_companies). Jose 2026-05-27.
-  const [r1, r3, rt, rtc, rtp] = await Promise.all([
+  //
+  // El botón solo corre fases que NO cubre ningún cron: list entries (1), deals nuevos (3)
+  // y deals tagueados (tagged) — el caso de uso interactivo de José: taguear un deal en
+  // Attio y verlo aparecer. Las fases pesadas quedaron fuera igual que phase=2b en su
+  // momento: phase=tc (~96s) y phase=tp (~85s) las corren sus crons cada 30 min
+  // (fm-sync-tagged-companies / fm-sync-third-party); en paralelo acá excedían los 120s
+  // de maxDuration → 504 (2026-08-03).
+  const [r1, r3, rt] = await Promise.all([
     fetch(`${SYNC_URL}?phase=1`),
     fetch(`${SYNC_URL}?phase=3&since=${encodeURIComponent(since)}`),
     fetch(`${SYNC_URL}?phase=tagged`),
-    fetch(`${SYNC_URL}?phase=tc`), // empresas por tag Campaña/Evento (ancla de QM FM). Jose 2026-07-08.
-    fetch(`${SYNC_URL}?phase=tp`), // personas third-party (Origen de invitación = Thirdparty)
   ]);
 
-  if (!r1.ok || !r3.ok || !rt.ok || !rtc.ok || !rtp.ok) {
-    const [t1, t3, tt, ttc, ttp] = await Promise.all([
+  if (!r1.ok || !r3.ok || !rt.ok) {
+    const [t1, t3, tt] = await Promise.all([
       r1.text().catch(() => ""),
       r3.text().catch(() => ""),
       rt.text().catch(() => ""),
-      rtc.text().catch(() => ""),
-      rtp.text().catch(() => ""),
     ]);
     return Response.json(
       {
@@ -47,26 +50,17 @@ export async function POST() {
         phase1: { status: r1.status, body: t1.slice(0, 300) },
         phase3: { status: r3.status, body: t3.slice(0, 300), since },
         tagged: { status: rt.status, body: tt.slice(0, 300) },
-        tagged_companies: { status: rtc.status, body: ttc.slice(0, 300) },
-        third_party: { status: rtp.status, body: ttp.slice(0, 300) },
       },
       { status: 502 }
     );
   }
 
-  const [d1, d3, dt, dtc, dtp] = await Promise.all([r1.json(), r3.json(), rt.json(), rtc.json(), rtp.json()]);
+  const [d1, d3, dt] = await Promise.all([r1.json(), r3.json(), rt.json()]);
 
-  // Nota: el refresh de outbound_stage/qm_type de empresas existentes (phase=2b) NO se
-  // corre acá — hacerlo sincrónicamente excedía el maxDuration de Vercel y daba 504.
-  // Lo cubre el cron `fm-refresh-companies` (pg_cron, cada 10 min). El botón solo corre
-  // las fases livianas: list entries (1), deals nuevos (3), tagueados (tagged) y personas
-  // third-party (tp).
   return Response.json({
     list_entries: d1.list_entries ?? 0,
     deals: d3.deals ?? 0,
     tagged: dt.tagged ?? 0,
-    tagged_companies: dtc.tagged_companies ?? 0,
-    third_party_people: dtp.third_party_people ?? 0,
     since,
   });
 }
