@@ -376,6 +376,10 @@ export function CalendarioClient({
         </div>
       )}
 
+      {/* Cumplimiento por persona (pedido Camilo 2026-08-05): cómo viene cada responsable
+          con sus accionables EXIGIBLES (el aviso ya llegó) de eventos vigentes. */}
+      <CumplimientoPorPersona accionables={accionables} eventos={eventos} hoyIso={hoyIso} />
+
       {editing && (
         <EventForm
           evento={editing === "nuevo" ? null : editing}
@@ -388,6 +392,104 @@ export function CalendarioClient({
         />
       )}
     </div>
+  );
+}
+
+// Cumplimiento por persona: % de avance de los accionables exigibles (aviso ya llegado)
+// de eventos vigentes, por responsable. Alimenta la conversación de accountability de
+// Camilo/Mario sin perseguir a nadie: los datos los cargan las personas (dashboard o bot).
+function CumplimientoPorPersona({
+  accionables,
+  eventos,
+  hoyIso,
+}: {
+  accionables: EventAccionable[];
+  eventos: UpcomingEvent[];
+  hoyIso: string;
+}) {
+  const filas = useMemo(() => {
+    const eventosById = new Map(eventos.map((e) => [e.id, e]));
+    type Acc = { exigibles: number; completados: number; enCurso: number; sinArrancar: number; sumaProgreso: number; proximos: number };
+    const m = new Map<string, Acc>();
+
+    for (const a of accionables) {
+      if (a.aplica === false) continue;
+      const e = eventosById.get(a.event_id);
+      if (!e || e.estado === "Cancelado" || e.fecha < hoyIso) continue; // solo preparativos vigentes
+      const key = a.responsable ?? "— sin responsable —";
+      const acc = m.get(key) ?? { exigibles: 0, completados: 0, enCurso: 0, sinArrancar: 0, sumaProgreso: 0, proximos: 0 };
+      const exigible = !!a.fecha_aviso && a.fecha_aviso <= hoyIso;
+      if (exigible) {
+        acc.exigibles++;
+        acc.sumaProgreso += a.progreso;
+        if (a.progreso === 100) acc.completados++;
+        else if (a.progreso > 0) acc.enCurso++;
+        else acc.sinArrancar++;
+      } else {
+        acc.proximos++;
+      }
+      m.set(key, acc);
+    }
+
+    return [...m.entries()]
+      .map(([persona, acc]) => ({
+        persona,
+        ...acc,
+        pct: acc.exigibles > 0 ? Math.round(acc.sumaProgreso / acc.exigibles) : null,
+      }))
+      .filter((f) => f.exigibles > 0 || f.proximos > 0)
+      .sort((a, b) => (a.pct ?? 101) - (b.pct ?? 101));
+  }, [accionables, eventos, hoyIso]);
+
+  if (filas.length === 0) return null;
+
+  return (
+    <>
+      <div className="section-title" style={{ marginTop: 32 }}>Cumplimiento por persona</div>
+      <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, tableLayout: "fixed" }}>
+          <thead>
+            <tr style={{ borderBottom: "1px solid var(--border-tertiary)", textAlign: "left" }}>
+              <th style={{ ...thStyle, width: "26%" }}>Responsable</th>
+              <th style={{ ...thStyle, width: "26%" }}>Cumplimiento</th>
+              <th style={{ ...thStyle, width: "12%", textAlign: "right" }}>Exigibles</th>
+              <th style={{ ...thStyle, width: "12%", textAlign: "right" }}>✓ Listos</th>
+              <th style={{ ...thStyle, width: "12%", textAlign: "right" }}>Sin arrancar</th>
+              <th style={{ ...thStyle, width: "12%", textAlign: "right" }}>Próximos</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filas.map((f) => (
+              <tr key={f.persona} style={{ borderBottom: "1px solid var(--border-tertiary)" }}>
+                <td style={{ ...tdStyle, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{f.persona}</td>
+                <td style={tdStyle}>
+                  {f.pct === null ? (
+                    <span className="text-muted" style={{ fontSize: 12 }}>sin accionables exigibles aún</span>
+                  ) : (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ flex: 1, height: 6, borderRadius: 999, background: "var(--bg-secondary)", overflow: "hidden" }}>
+                        <div style={{ width: `${f.pct}%`, height: "100%", background: prepColor(f.pct) }} />
+                      </div>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: prepColor(f.pct), minWidth: 34, textAlign: "right" }}>{f.pct}%</span>
+                    </div>
+                  )}
+                </td>
+                <td style={{ ...tdStyle, textAlign: "right" }}>{f.exigibles}</td>
+                <td style={{ ...tdStyle, textAlign: "right", color: "var(--fg-status-success)", fontWeight: 600 }}>{f.completados}</td>
+                <td style={{ ...tdStyle, textAlign: "right", color: f.sinArrancar > 0 ? "var(--fg-status-error)" : "var(--fg-quaternary)", fontWeight: f.sinArrancar > 0 ? 600 : 400 }}>
+                  {f.sinArrancar}
+                </td>
+                <td style={{ ...tdStyle, textAlign: "right", color: "var(--fg-quaternary)" }}>{f.proximos}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="text-muted" style={{ fontSize: 11, padding: "10px 14px" }}>
+          Exigible = el aviso del accionable ya llegó y el evento sigue vigente. Cumplimiento = avance promedio de los exigibles
+          (lo actualiza cada persona desde el evento o respondiendo al bot de Slack). &quot;Próximos&quot; son accionables cuyo aviso todavía no llegó.
+        </div>
+      </div>
+    </>
   );
 }
 
