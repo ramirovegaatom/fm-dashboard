@@ -216,7 +216,7 @@ export type WeeklyProgress = {
   llamadas: number;
   whatsapps: number;
   empresas_trabajadas: number; // empresas con ≥1 actividad esa semana
-  empresas_procesadas: number; // empresas que COMPLETARON estructura (3+2) esa semana
+  empresas_procesadas: number; // completaron circuito (2 contactos con 3+2) o tuvieron QM agendada, esa semana
   qm_agendadas: number; // deals con fecha_qm_agendada esa semana
   qm_completadas: number;
   demos: number;
@@ -374,7 +374,11 @@ export type BdrCompany = {
   assigned_bdr_name: string | null;
   bdr_assigned_at: string | null; // fecha de asignación (YYYY-MM-DD)
   fecha_primera_actividad: string | null;
-  fecha_procesada: string | null; // cuando completó estructura 3+2
+  // Cuándo se procesó: circuito completo (2º contacto con 3+2) o primera QM agendada — la
+  // que llegue antes. Null si es procesada solo por stage positivo sin fecha de QM.
+  fecha_procesada: string | null;
+  // procesada = circuito completo O QM/Cliente por stage (Candela 2026-08-06: los contactos
+  // de evento pueden convertir sin completar el circuito y eso es válido).
   estado_actividad: "sin_actividad" | "en_proceso" | "procesada";
 };
 
@@ -421,14 +425,24 @@ export type SeguimientoCompany = {
   assigned_bdr_name: string | null;
   bdr_assigned_at: string | null;
   actividades_prospeccion: number; // llamadas + WhatsApps registrados (todas sus personas)
-  estructura_completa: boolean; // ≥1 contacto con 3 llamadas+2 WA o 3 WA+2 llamadas
+  // Circuito v2 (Ramiro+Candela 2026-08-06): contactos de la empresa que completaron
+  // CADA UNO la estructura (3 llamadas + 2 WA, o 2+3). Circuito completo = ≥2 contactos.
+  contactos_con_circuito: number;
+  estructura_completa: boolean; // circuito completo (≥2 contactos con estructura c/u)
   // Fecha del evento de la campaña (mapping regular o third-party); null si la campaña
   // no está mapeada — esas filas quedan fuera cuando el filtro de fechas está activo.
   evento_fecha: string | null;
-  // 2026-07-23 (Ramiro): Attio dice "Procesada" pero las actividades no lo respaldan
-  // (sin estructura completa). La fuente de verdad de las etapas son las actividades;
-  // este flag alerta la discrepancia para corregirla en Attio o completar el trabajo.
-  procesada_sin_actividades: boolean;
+  // Flags de circuito (2026-08-06). El stage terminal en Attio no siempre viene respaldado
+  // por el circuito de actividades; cada caso se trata distinto:
+  // - positiva_sin_circuito: llegó a QM/Cliente sin circuito → VÁLIDO (contacto caliente de
+  //   evento, Candela 2026-08-06), badge informativo.
+  // - descalificada_sin_circuito: Descalificada en Attio sin circuito → cuenta en DropOff
+  //   pero marcada; el porqué (industria/filtros) queda para mapear más adelante.
+  // - terminal_sin_circuito: Procesada/Lost/RECYCLE en Attio sin circuito → NO cuenta en esa
+  //   etapa (la fuente de verdad son las actividades), aparece en su etapa real con ⚠.
+  positiva_sin_circuito: boolean;
+  descalificada_sin_circuito: boolean;
+  terminal_sin_circuito: boolean;
 };
 
 // Trae TODAS las filas de fm_seguimiento_companies (PostgREST corta en 1000 por request).

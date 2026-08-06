@@ -89,7 +89,7 @@ export function EtapaDetailClient({
       {/* Header */}
       <div style={{ marginBottom: 6 }}>
         <Link href="/seguimiento" style={{ fontSize: 12, color: "var(--fg-status-brand)", textDecoration: "none" }}>
-          &larr; Volver a Seguimiento
+          &larr; Volver a Estado actual
         </Link>
         <h2 style={{ fontSize: 20, fontWeight: 700, margin: "6px 0 2px", color: etapaActiva?.color }}>
           {etapaActiva ? etapaActiva.label : "Todas las empresas"}

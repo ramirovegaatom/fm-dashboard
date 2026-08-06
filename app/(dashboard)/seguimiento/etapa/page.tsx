@@ -16,7 +16,7 @@ export default async function EtapaDetailPage({ searchParams }: { searchParams: 
     return (
       <div>
         <p className="text-muted" style={{ fontSize: 13 }}>Etapa inválida.</p>
-        <Link href="/seguimiento" style={{ fontSize: 13, color: "var(--fg-status-brand)", textDecoration: "none" }}>&larr; Volver a Seguimiento</Link>
+        <Link href="/seguimiento" style={{ fontSize: 13, color: "var(--fg-status-brand)", textDecoration: "none" }}>&larr; Volver a Estado actual</Link>
       </div>
     );
   }

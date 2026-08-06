@@ -17,13 +17,16 @@ export const ETAPAS: { key: EtapaKey; label: string; labelCorto: string; detalle
   { key: "sin_prospectar", label: "Sin procesar", labelCorto: "Sin procesar", detalle: "PRE-QM + sin actividad (vacío, Ready, Not Started)", color: "var(--fg-status-error)" },
   { key: "siendo_prospectada", label: "Procesando", labelCorto: "Procesando", detalle: "Con contacto, Procesando, o con actividades iniciadas", color: "var(--fg-status-info)" },
   // 2026-07-23 (Ramiro): la fuente de verdad de estas etapas son las ACTIVIDADES, no el
-  // stage manual de Attio. Una empresa "Procesada" en Attio sin la estructura de actividades
-  // NO cuenta como procesada — se muestra con la alerta ⚠ (procesada_sin_actividades).
-  { key: "procesada", label: "Procesada", labelCorto: "Procesada", detalle: "Lost + procesada por actividad (3 llamadas + 2 WhatsApp o 3 WhatsApp + 2 llamadas por contacto)", color: "var(--fg-secondary)" },
-  { key: "respuesta_positiva", label: "Respuesta positiva", labelCorto: "Resp. positiva", detalle: "QM Agendada, QM Show, QM No Show", color: "var(--fg-status-success)" },
-  { key: "dropoff", label: "DropOff", labelCorto: "DropOff", detalle: "Descalificadas (no ICP)", color: "var(--fg-status-warning)" },
+  // stage manual de Attio. Circuito v2 (Ramiro+Candela 2026-08-06): circuito completo =
+  // ≥2 CONTACTOS con estructura (3 llamadas + 2 WA o 2+3) cada uno. Procesada/Lost/RECYCLE
+  // en Attio sin circuito NO cuentan en esa etapa — aparecen en su etapa real con ⚠.
+  { key: "procesada", label: "Procesada", labelCorto: "Procesada", detalle: "circuito completo: 2+ contactos con 3 llamadas + 2 WhatsApp (o 2+3) cada uno; incluye Lost con circuito", color: "var(--fg-secondary)" },
+  // Los QM/Cliente cuentan acá SIN exigir circuito (Candela 2026-08-06: los contactos de
+  // evento vienen calientes y pueden convertir antes de completarlo — válido, con badge).
+  { key: "respuesta_positiva", label: "Respuesta positiva", labelCorto: "Resp. positiva", detalle: "QM Agendada, QM Show, QM No Show, Cliente — válida aun sin circuito completo", color: "var(--fg-status-success)" },
+  { key: "dropoff", label: "DropOff", labelCorto: "DropOff", detalle: "Descalificadas (no ICP) — las sin circuito completo llevan marca para revisar", color: "var(--fg-status-warning)" },
   // José 2026-07-17: Recycle separado de DropOff — no son lo mismo (vuelven al pool).
-  { key: "recycle", label: "Recycle", labelCorto: "Recycle", detalle: "empresas recicladas: vuelven al pool para re-prospección", color: "var(--fg-status-brand)" },
+  { key: "recycle", label: "Recycle", labelCorto: "Recycle", detalle: "recicladas al pool — solo cuentan acá con circuito completo", color: "var(--fg-status-brand)" },
 ];
 
 export const etapaRank = (e: EtapaKey) => ETAPAS.findIndex((x) => x.key === e);
@@ -66,17 +69,35 @@ export function CompanyRow({ c, showEtapa, showBdr, selected, onToggleSelect }: 
         <span className="badge" style={{ background: "var(--bg-secondary)", color: "var(--fg-secondary)", fontSize: 10 }}>
           {c.outbound_stage ?? "sin stage"}
         </span>
-        {c.procesada_sin_actividades && (
+        {c.terminal_sin_circuito && (
           <span
             className="badge"
-            title={`Marcada "Procesada" en Attio pero sin las actividades correspondientes (tiene ${c.actividades_prospeccion}; la estructura mínima es 3 llamadas + 2 WhatsApp por contacto). La fuente de verdad son las actividades: acá cuenta en su etapa real.`}
+            title={`Marcada "${c.outbound_stage}" en Attio pero sin circuito completo (${c.contactos_con_circuito}/2 contactos con 3 llamadas + 2 WhatsApp c/u). La fuente de verdad son las actividades: acá cuenta en su etapa real.`}
             style={{ background: "var(--bg-status-warning, var(--bg-secondary))", color: "var(--fg-status-warning)", fontSize: 10, fontWeight: 700, cursor: "help" }}
           >
-            ⚠ sin actividades
+            ⚠ sin circuito
           </span>
         )}
-        <span className="text-muted" style={{ fontSize: 11, whiteSpace: "nowrap" }} title="Llamadas + WhatsApps registrados">
-          {c.actividades_prospeccion} act.{c.estructura_completa ? " ✓" : ""}
+        {c.descalificada_sin_circuito && (
+          <span
+            className="badge"
+            title={`Descalificada en Attio sin circuito completo (${c.contactos_con_circuito}/2 contactos). Puede ser válida (industria u otros filtros) — el criterio queda pendiente de mapear con Candela. Cuenta en DropOff.`}
+            style={{ background: "var(--bg-status-error, var(--bg-secondary))", color: "var(--fg-status-error)", fontSize: 10, fontWeight: 700, cursor: "help" }}
+          >
+            desc. sin circuito
+          </span>
+        )}
+        {c.positiva_sin_circuito && (
+          <span
+            className="badge"
+            title={`Llegó a respuesta positiva sin completar el circuito (${c.contactos_con_circuito}/2 contactos) — contacto caliente del evento. Válido; el badge es solo informativo.`}
+            style={{ background: "var(--bg-secondary)", color: "var(--fg-status-success)", fontSize: 10, fontWeight: 700, cursor: "help" }}
+          >
+            por stage
+          </span>
+        )}
+        <span className="text-muted" style={{ fontSize: 11, whiteSpace: "nowrap" }} title={`Llamadas + WhatsApps registrados · contactos con estructura completa (de los 2 que exige el circuito)`}>
+          {c.actividades_prospeccion} act. · {c.contactos_con_circuito}/2{c.estructura_completa ? " ✓" : ""}
         </span>
         <span className="text-muted" style={{ fontSize: 11, whiteSpace: "nowrap" }}>
           {c.bdr_assigned_at

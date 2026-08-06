@@ -9,8 +9,10 @@ const TABS = [
   { href: "/partners", label: "Partners" },
   { href: "/pauta", label: "Pauta" },
   { href: "/third-party", label: "Third Party" },
-  { href: "/seguimiento", label: "Seguimiento" },
-  { href: "/semanal", label: "Semanal" },
+  // 2026-08-06 (confusión Candela): renombrados para que digan qué pregunta responde cada
+  // uno — Estado actual = foto de HOY del funnel; Semana a semana = qué pasó cada semana.
+  { href: "/seguimiento", label: "Estado actual" },
+  { href: "/semanal", label: "Semana a semana" },
   { href: "/mrr", label: "MRR cerrado" },
 ];
 

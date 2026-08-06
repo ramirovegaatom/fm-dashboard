@@ -31,7 +31,9 @@ type WeekAgg = {
 const METRICAS_CHART: { key: keyof WeekAgg; label: string; color: string; money?: boolean }[] = [
   { key: "llamadas", label: "Llamadas", color: "var(--chart-linkedin)" },
   { key: "whatsapps", label: "WhatsApps", color: "var(--chart-email)" },
-  { key: "empresas_procesadas", label: "Empresas procesadas (estructura 3+2)", color: "var(--fg-status-brand)" },
+  // Circuito v2 (2026-08-06): procesada = circuito completo (2 contactos con 3+2 c/u) o QM
+  // agendada — misma definición que la pestaña de estado (los QM calientes de evento cuentan).
+  { key: "empresas_procesadas", label: "Empresas procesadas (circuito o QM)", color: "var(--fg-status-brand)" },
   { key: "qm_agendadas", label: "QM agendadas (deals)", color: "var(--fg-status-info)" },
   { key: "demos", label: "Demos", color: "var(--chart-partner)" },
   { key: "mrr_won", label: "MRR cerrado", color: "var(--fg-status-success)", money: true },
@@ -41,7 +43,7 @@ const METRICAS_CHART: { key: keyof WeekAgg; label: string; color: string; money?
 // sin fecha histórica (se cubrirán con fm_weekly_snapshots hacia adelante).
 const HITOS_META: { key: WeeklyHito["hito"]; label: string }[] = [
   { key: "inicio_prospeccion", label: "Inicio prospección" },
-  { key: "procesada", label: "Procesada (3+2)" },
+  { key: "procesada", label: "Procesada (circuito o QM)" },
   { key: "qm_agendada", label: "QM agendada" },
   { key: "qm_completada", label: "QM completada" },
   { key: "demo", label: "Demo" },
@@ -459,8 +461,18 @@ export function SemanalClient({
           </>
         )}
       </div>
-      <div className="text-muted" style={{ fontSize: 12, marginBottom: 24 }}>
-        Fechas = actividad real del contacto o fecha de etapa del deal, nunca la fecha del evento · semana = lunes a domingo
+      <div
+        className="card"
+        style={{ marginBottom: 24, background: "var(--bg-secondary)", fontSize: 12, color: "var(--fg-secondary)" }}
+      >
+        <strong>Qué pasó CADA SEMANA</strong>: actividades, empresas procesadas, QMs y wons ubicados en la
+        semana en que ocurrieron. Fechas = <strong>actividad real del contacto</strong> o fecha de etapa del
+        deal, nunca la fecha del evento · semana = lunes a domingo. Para ver en qué etapa está HOY cada
+        empresa y el scorecard por BDR, usá la pestaña{" "}
+        <a href="/seguimiento" style={{ color: "var(--fg-status-info)" }}>Estado actual</a>.
+        “Procesada” = circuito completo (2 contactos con 3 llamadas + 2 WhatsApp c/u){" "}
+        <strong>o QM agendada</strong> — los contactos calientes de evento cuentan aunque no hayan
+        completado el circuito.
       </div>
 
       {/* Stats del rango */}
@@ -494,7 +506,7 @@ export function SemanalClient({
       )}
 
       {/* Seguimiento por BDR: cuándo se asignó cada empresa y en qué estado está */}
-      <div className="section-title">Seguimiento por BDR · asignaciones y procesamiento</div>
+      <div className="section-title">Asignaciones y procesamiento por BDR</div>
       <div className="card" style={{ marginBottom: 32 }}>
         <div className="text-muted" style={{ fontSize: 12, marginBottom: 12 }}>
           {fromStr || toStr ? (
@@ -717,8 +729,10 @@ export function SemanalClient({
         )}
 
         <div className="text-muted" style={{ fontSize: 11, marginTop: 12 }}>
-          &quot;Asignada el&quot; = cuándo se seteó el Assigned BDR en Attio (100% de cobertura) · estado por actividades reales:
-          procesada = estructura 3+2 completa, en proceso = con actividad pero sin estructura, sin actividad = ni una llamada/WhatsApp.
+          &quot;Asignada el&quot; = cuándo se seteó el Assigned BDR en Attio (100% de cobertura) · estado:
+          procesada = circuito completo (2 contactos con 3+2 c/u) o QM/Cliente por stage, en proceso = con actividad
+          pero sin circuito, sin actividad = ni una llamada/WhatsApp. &quot;Procesada el&quot; = 2º contacto con
+          estructura o primera QM — puede quedar vacía si es procesada por stage sin fecha de QM.
         </div>
       </div>
 

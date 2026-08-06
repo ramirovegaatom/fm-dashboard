@@ -10,8 +10,10 @@ import { SIN_BDR, ETAPAS, etapaRank, CompanyRow, type EtapaKey } from "./shared"
 // por actividades reales, scorecard por BDR con desglose por etapa, filtro de campaña con
 // búsqueda, filtro multi-select de BDRs. Las stats de cada BDR abren un PREVIEW corto
 // (5 empresas); el detalle completo vive en la subpágina /seguimiento/bdr?name=…
-// "Procesada por actividad" = estructura estricta por contacto: 3 llamadas + 2 WhatsApp
-// o 3 WhatsApp + 2 llamadas. Clientes (lifecycle Customer) excluidos en la vista SQL.
+// Circuito v2 (Ramiro+Candela 2026-08-06): circuito completo = ≥2 contactos con estructura
+// (3 llamadas + 2 WhatsApp o 2+3) cada uno. QM/Cliente valen sin circuito (badge "por stage");
+// Descalificada sin circuito cuenta en DropOff pero marcada; Procesada/Lost/RECYCLE sin
+// circuito caen a su etapa real con ⚠. Clientes (lifecycle Customer) excluidos en la vista SQL.
 const PREVIEW_LIMIT = 5;
 
 function bdrDetailHref(name: string) {
@@ -81,6 +83,18 @@ export function SeguimientoClient({ companies }: { companies: SeguimientoCompany
 
   const asignadas = filtered.length;
 
+  // Contadores de los flags de circuito (Candela 2026-08-06): positivas que llegaron por
+  // stage (válidas, informativo) y descalificadas sin circuito (para revisar el criterio).
+  const flags = useMemo(() => {
+    let positivas = 0, descalificadas = 0, terminales = 0;
+    for (const c of filtered) {
+      if (c.positiva_sin_circuito) positivas++;
+      if (c.descalificada_sin_circuito) descalificadas++;
+      if (c.terminal_sin_circuito) terminales++;
+    }
+    return { positivas, descalificadas, terminales };
+  }, [filtered]);
+
   // 2026-07-23 (Camilo): empresas con campaña de evento pero SIN BDR asignado — el pool sin
   // dueño puede pasar desapercibido (error humano al cargar). Banner con acceso directo a
   // asignarles BDR. Respeta campaña/fecha pero ignora el multi-select de BDRs.
@@ -112,11 +126,13 @@ export function SeguimientoClient({ companies }: { companies: SeguimientoCompany
         className="card"
         style={{ marginBottom: 20, background: "var(--bg-secondary)", fontSize: 12, color: "var(--fg-secondary)" }}
       >
-        Avance de las <strong>empresas generadas por marketing</strong> (eventos y webinars) a través del
-        embudo comercial, y desempeño de los <strong>BDRs</strong> en su procesamiento. Etapas basadas en el{" "}
+        <strong>Foto de HOY</strong>: en qué etapa del embudo está cada empresa generada por marketing
+        (eventos y webinars) y cómo viene cada <strong>BDR</strong> con su procesamiento. Etapas basadas en el{" "}
         <strong>Outbound Stage</strong> de Attio validado con las <strong>actividades reales</strong> (llamadas
-        y WhatsApp registrados por contacto). Las empresas que ya son clientes (Lifecycle Stage ={" "}
-        <strong>Customer</strong>) no se cuentan.
+        y WhatsApp registrados por contacto). El filtro de fechas filtra por la{" "}
+        <strong>fecha del EVENTO</strong>, no de la actividad — para ver cuánta actividad hubo cada semana,
+        usá la pestaña <Link href="/semanal" style={{ color: "var(--fg-status-info)" }}>Semana a semana</Link>.
+        Las empresas que ya son clientes (Lifecycle Stage = <strong>Customer</strong>) no se cuentan.
       </div>
 
       {/* Filtros: campaña (búsqueda) + BDRs (multi-select) + fechas (Q/mes/custom) */}
@@ -185,13 +201,19 @@ export function SeguimientoClient({ companies }: { companies: SeguimientoCompany
           />
         ))}
         <div className="text-muted" style={{ fontSize: 10, marginTop: 10 }}>
-          La fuente de verdad de “Sin procesar / Procesando / Procesada” son las <strong>actividades
-          reales</strong> (llamadas y WhatsApp por contacto), no el stage manual de Attio. Lost cuenta
-          como resultado negativo dentro de “Procesada”. Las empresas marcadas “Procesada” en Attio sin
-          la estructura de actividades aparecen en su etapa real con la alerta{" "}
-          <span style={{ color: "var(--fg-status-warning)", fontWeight: 700 }}>⚠ sin actividades</span>.
-          Con el filtro de fechas activo quedan fuera las campañas sin fecha de evento mapeada. Click en
-          una etapa para ver sus empresas.
+          <strong>Circuito completo</strong> = 2 o más contactos de la empresa con la estructura de
+          actividades cada uno (3 llamadas + 2 WhatsApp, o 2+3). La fuente de verdad de “Sin procesar /
+          Procesando / Procesada” son las <strong>actividades reales</strong>, no el stage manual de
+          Attio: Procesada/Lost/RECYCLE sin circuito aparecen en su etapa real con{" "}
+          <span style={{ color: "var(--fg-status-warning)", fontWeight: 700 }}>⚠ sin circuito</span>
+          {flags.terminales > 0 ? ` (${flags.terminales} hoy)` : ""}. Las excepciones:{" "}
+          <span style={{ color: "var(--fg-status-success)", fontWeight: 700 }}>respuestas positivas</span>{" "}
+          valen sin circuito porque los contactos de evento vienen calientes ({flags.positivas} “por
+          stage” hoy), y las <span style={{ color: "var(--fg-status-error)", fontWeight: 700 }}>descalificadas
+          sin circuito</span> ({flags.descalificadas} hoy) cuentan en DropOff pero quedan marcadas — el
+          criterio de descalificación sin trabajar el contacto está pendiente de mapear. Con el filtro de
+          fechas activo quedan fuera las campañas sin fecha de evento mapeada. Click en una etapa para ver
+          sus empresas.
         </div>
       </div>
 

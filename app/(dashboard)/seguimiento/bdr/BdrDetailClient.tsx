@@ -67,7 +67,7 @@ export function BdrDetailClient({ bdrName, companies, bdrOptions }: {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 6 }}>
         <div>
           <Link href="/seguimiento" style={{ fontSize: 12, color: "var(--fg-status-brand)", textDecoration: "none" }}>
-            &larr; Volver a Seguimiento
+            &larr; Volver a Estado actual
           </Link>
           <h2 style={{ fontSize: 20, fontWeight: 700, margin: "6px 0 2px", color: sinBdr ? "var(--fg-status-warning)" : undefined }}>
             {bdrName}

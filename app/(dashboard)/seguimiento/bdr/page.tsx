@@ -17,7 +17,7 @@ export default async function BdrDetailPage({ searchParams }: { searchParams: Pr
     return (
       <div>
         <p className="text-muted" style={{ fontSize: 13 }}>Falta el BDR.</p>
-        <Link href="/seguimiento" style={{ fontSize: 13, color: "var(--fg-status-brand)", textDecoration: "none" }}>&larr; Volver a Seguimiento</Link>
+        <Link href="/seguimiento" style={{ fontSize: 13, color: "var(--fg-status-brand)", textDecoration: "none" }}>&larr; Volver a Estado actual</Link>
       </div>
     );
   }
