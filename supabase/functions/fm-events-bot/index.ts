@@ -80,21 +80,38 @@ function porDestinatario(accionables: Accionable[]): Map<string, Accionable[]> {
   return map;
 }
 
-function selectAvance(a: Accionable) {
+// Claves de accionables condicionales (pauta, contenido): son los únicos que pueden "no
+// aplicar" a un evento. El resto es obligatorio siempre.
+async function clavesCondicionales(): Promise<Set<string>> {
+  const { data } = await supabase.from("fm_accionables_template").select("clave, condicional");
+  return new Set(((data ?? []) as { clave: string; condicional: boolean }[])
+    .filter((t) => t.condicional).map((t) => t.clave));
+}
+
+function selectAvance(a: Accionable, condicional: boolean) {
+  const opciones = Array.from({ length: 11 }, (_, i) => i * 10).map((v) => ({
+    text: { type: "plain_text", text: v === 100 ? "✅ 100% — listo" : `${v}%` },
+    value: `${a.id}|${v}`,
+  }));
+  // En Slack los usuarios NO pueden escribirle al bot (mensajes deshabilitados en la app),
+  // así que "no aplica" tiene que resolverse desde el propio desplegable. 2026-08-07.
+  if (condicional) {
+    opciones.push({
+      text: { type: "plain_text", text: "🚫 No aplica a este evento" },
+      value: `${a.id}|na`,
+    });
+  }
   return {
     type: "static_select",
     action_id: "fm_progreso",
     placeholder: { type: "plain_text", text: a.progreso > 0 ? `${a.progreso}%` : "Marcá tu avance" },
-    options: Array.from({ length: 11 }, (_, i) => i * 10).map((v) => ({
-      text: { type: "plain_text", text: v === 100 ? "✅ 100% — listo" : `${v}%` },
-      value: `${a.id}|${v}`,
-    })),
+    options: opciones,
   };
 }
 
 // Digest de UNA persona: encabezado + sus accionables agrupados por evento, cada uno con
 // su desplegable. Devuelve varios mensajes si no entra en el límite de bloques de Slack.
-function armarDigest(items: Accionable[], intro: string): { text: string; blocks: unknown[] }[] {
+function armarDigest(items: Accionable[], intro: string, condicionales: Set<string>): { text: string; blocks: unknown[] }[] {
   const eventos = new Map<string, Accionable[]>();
   for (const a of items) {
     const arr = eventos.get(a.event_id) ?? [];
@@ -120,7 +137,7 @@ function armarDigest(items: Accionable[], intro: string): { text: string; blocks
       grupo.push({
         type: "section",
         text: { type: "mrkdwn", text: `*${a.nombre}*\n_${a.progreso > 0 ? `avance actual: ${a.progreso}%` : "sin arrancar"}_` },
-        accessory: selectAvance(a),
+        accessory: selectAvance(a, condicionales.has(a.template_clave ?? "")),
       });
     }
     bloquesEvento.push(grupo);
@@ -220,10 +237,26 @@ async function pendientesDeAviso(): Promise<Accionable[]> {
   return candidatos.filter((a) => !ya.has(a.id));
 }
 
+// Texto de encabezado. NO invita a responderle al bot: en Slack los mensajes a la app están
+// deshabilitados (2026-08-07). La salida para "no aplica" es la opción del desplegable, y
+// para todo lo demás está el link al dashboard que va al pie del digest.
+function introDigest(items: Accionable[], condicionales: Set<string>, tipo: "aviso" | "status") {
+  const n = items.length;
+  const plural = n === 1 ? "" : "s";
+  const tieneCondicionales = items.some((a) => condicionales.has(a.template_clave ?? ""));
+  const nota = tieneCondicionales
+    ? " Si alguno no corresponde a ese evento, elegí *🚫 No aplica* y no te lo vuelvo a pedir."
+    : "";
+  return tipo === "aviso"
+    ? `:calendar: *Tenés ${n} accionable${plural} de eventos que se vienen*\nMarcá tu avance en cada uno con el desplegable.${nota}`
+    : `:bar_chart: *¿Cómo venís con estos ${n} accionable${plural}?*\nActualizá el avance con el desplegable — así el equipo ve el estado real sin tener que preguntarte.${nota}`;
+}
+
 // Aviso inicial: UN digest por persona con todos sus accionables nuevos.
 async function faseAvisos() {
   const pendientes = await pendientesDeAviso();
   const grupos = porDestinatario(pendientes);
+  const condicionales = await clavesCondicionales();
 
   if (!SLACK_TOKEN) {
     return { fase: "avisos", enviados: 0, personas: grupos.size, accionables: pendientes.length, nota: "SLACK_BOT_TOKEN no configurado" };
@@ -232,8 +265,7 @@ async function faseAvisos() {
   // Un accionable puede tener 2 destinatarios: se registra una sola vez, ok = todos ok.
   const resultado = new Map<string, { ok: boolean; detalle: string | null }>();
   for (const [slackId, items] of grupos) {
-    const intro = `:calendar: *Tenés ${items.length} accionable${items.length === 1 ? "" : "s"} de eventos que se vienen*\nMarcá tu avance en cada uno con el desplegable. Si alguno no aplica a ese evento, avisá por acá.`;
-    const mensajes = armarDigest(items, intro);
+    const mensajes = armarDigest(items, introDigest(items, condicionales, "aviso"), condicionales);
     let okPersona = true;
     let detalle: string | null = null;
     for (const m of mensajes) {
@@ -310,14 +342,14 @@ async function faseStatus() {
   });
 
   const grupos = porDestinatario(pendientes);
+  const condicionales = await clavesCondicionales();
   if (!SLACK_TOKEN) {
     return { fase: "status", enviados: 0, personas: grupos.size, accionables: pendientes.length, nota: "SLACK_BOT_TOKEN no configurado" };
   }
 
   const resultado = new Map<string, { ok: boolean; detalle: string | null }>();
   for (const [slackId, items] of grupos) {
-    const intro = `:bar_chart: *¿Cómo venís con estos ${items.length} accionable${items.length === 1 ? "" : "s"}?*\nActualizá el avance de cada uno con el desplegable — así el equipo ve el estado real sin tener que preguntarte.`;
-    const mensajes = armarDigest(items, intro);
+    const mensajes = armarDigest(items, introDigest(items, condicionales, "status"), condicionales);
     let okPersona = true;
     let detalle: string | null = null;
     for (const m of mensajes) {
@@ -356,6 +388,7 @@ async function fasePreview(target: string) {
   if (!SLACK_TOKEN) return { ok: false, nota: "SLACK_BOT_TOKEN no configurado" };
   const pendientes = await pendientesDeAviso();
   const grupos = porDestinatario(pendientes);
+  const condicionales = await clavesCondicionales();
 
   const resumen = [...grupos.entries()]
     .map(([id, items]) => `• <@${id}> — ${items.length} accionable${items.length === 1 ? "" : "s"}`)
@@ -374,8 +407,7 @@ async function fasePreview(target: string) {
 
   const enviados: { slack_id: string; responsable: string | null; accionables: number; mensajes: number; ok: boolean }[] = [];
   for (const [slackId, items] of grupos) {
-    const intro = `:calendar: *Tenés ${items.length} accionable${items.length === 1 ? "" : "s"} de eventos que se vienen*\nMarcá tu avance en cada uno con el desplegable. Si alguno no aplica a ese evento, avisá por acá.`;
-    const mensajes = armarDigest(items, intro);
+    const mensajes = armarDigest(items, introDigest(items, condicionales, "aviso"), condicionales);
     await slackPost(target, "Preview", [{
       type: "context",
       elements: [{ type: "mrkdwn", text: `:arrow_down: *Esto le llegaría a <@${slackId}>* (${items[0].responsable ?? "?"}) — ${mensajes.length} mensaje${mensajes.length === 1 ? "" : "s"}` }],

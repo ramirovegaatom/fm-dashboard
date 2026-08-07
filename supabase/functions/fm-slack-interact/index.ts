@@ -45,9 +45,33 @@ Deno.serve(async (req: Request) => {
   if (payload.type === "block_actions") {
     const action = (payload.actions ?? []).find((a: { action_id: string }) => a.action_id === "fm_progreso");
     if (action) {
-      const [accionableId, pctStr] = String(action.selected_option?.value ?? "").split("|");
-      const progreso = Number(pctStr);
+      const [accionableId, valorStr] = String(action.selected_option?.value ?? "").split("|");
       const autor = payload.user?.username ?? payload.user?.id ?? "slack";
+
+      // "na" = No aplica a este evento (2026-08-07): en Slack no se le puede escribir al bot
+      // (mensajes deshabilitados en la app), así que la única salida para los accionables
+      // condicionales es esta opción del propio desplegable. Equivale a destildar "¿Aplica?"
+      // en el dashboard: el accionable deja de contar y no se vuelve a pedir status.
+      if (accionableId && valorStr === "na") {
+        await supabase.from("fm_event_accionables").update({
+          aplica: false,
+          ultimo_update_at: new Date().toISOString(),
+          ultimo_update_por: autor,
+        }).eq("id", accionableId);
+        if (payload.response_url) {
+          await fetch(payload.response_url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              replace_original: false,
+              text: "🚫 Registrado: este accionable *no aplica* para ese evento. No te lo vuelvo a pedir.",
+            }),
+          });
+        }
+        return new Response("", { status: 200 });
+      }
+
+      const progreso = Number(valorStr);
       if (accionableId && progreso >= 0 && progreso <= 100) {
         await supabase.from("fm_event_accionables").update({
           progreso,
