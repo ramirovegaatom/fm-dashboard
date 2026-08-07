@@ -446,6 +446,9 @@ export type SeguimientoCompany = {
   descalificada_sin_circuito: boolean;
   terminal_sin_circuito: boolean;
   recycle_sin_circuito: boolean;
+  // Descartada desde el dashboard (fm_company_discards, 2026-08-06): decisión deliberada
+  // de no asignarla a ningún BDR. Cuenta en dropoff pero NO enciende descalificada_sin_circuito.
+  descartada_dashboard: boolean;
 };
 
 // Trae TODAS las filas de fm_seguimiento_companies (PostgREST corta en 1000 por request).

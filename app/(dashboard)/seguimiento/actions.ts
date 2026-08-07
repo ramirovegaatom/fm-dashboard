@@ -17,6 +17,31 @@ export type ReassignResult = {
 // esta action se autentica con SUPABASE_SECRET_KEY (env solo-servidor, nunca llega al
 // cliente). La página está detrás de Google SSO (proxy.ts), así que solo usuarios
 // @atomchat.io pueden disparar esto.
+// Descarte en bulk (Ramiro 2026-08-06): empresas del pool que no califican para asignar a
+// ningún BDR. La edge fn escribe outbound_stage="Descalificada" en Attio y registra el
+// descarte en fm_company_discards (así no encienden el flag de revisión de Candela).
+export async function descartarCompaniesAction(companyIds: string[]): Promise<ReassignResult> {
+  const key = process.env.SUPABASE_SECRET_KEY;
+  if (!key) return { success: false, updated: 0, error: "SUPABASE_SECRET_KEY no configurada" };
+  const ids = [...new Set(companyIds)].filter(Boolean).slice(0, 200);
+  if (!ids.length) return { success: false, updated: 0, error: "Faltan empresas" };
+  try {
+    const r = await fetch(`${SYNC_URL}?phase=descartar`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-admin-key": key },
+      body: JSON.stringify({ company_ids: ids }),
+    });
+    const j = (await r.json().catch(() => ({}))) as { updated?: number; errors?: string[]; error?: string };
+    if (!r.ok) return { success: false, updated: 0, error: j.error ?? `HTTP ${r.status}` };
+    revalidatePath("/seguimiento");
+    revalidatePath("/seguimiento/etapa");
+    revalidatePath("/seguimiento/bdr");
+    return { success: true, updated: j.updated ?? 0, errors: j.errors ?? [] };
+  } catch (e) {
+    return { success: false, updated: 0, error: String(e) };
+  }
+}
+
 export async function reassignBdrAction(companyIds: string[], bdrId: string): Promise<ReassignResult> {
   const key = process.env.SUPABASE_SECRET_KEY;
   if (!key) return { success: false, updated: 0, error: "SUPABASE_SECRET_KEY no configurada" };

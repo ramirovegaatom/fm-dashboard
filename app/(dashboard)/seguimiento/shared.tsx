@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { SeguimientoCompany } from "@/lib/supabase";
 import { attioCompanyUrl } from "@/lib/attio";
-import { reassignBdrAction } from "./actions";
+import { reassignBdrAction, descartarCompaniesAction } from "./actions";
 
 // Piezas compartidas entre la vista general de Seguimiento y el detalle por BDR.
 export type EtapaKey = SeguimientoCompany["etapa_funnel"];
@@ -85,6 +85,15 @@ export function CompanyRow({ c, showEtapa, showBdr, selected, onToggleSelect }: 
             ⚠ sin circuito
           </span>
         )}
+        {c.descartada_dashboard && (
+          <span
+            className="badge"
+            title="Descartada desde el dashboard: se decidió no asignarla a ningún BDR (no califica). Cuenta en DropOff como descarte deliberado — no es una descalificación del BDR sin circuito."
+            style={{ background: "var(--bg-secondary)", color: "var(--fg-quaternary)", fontSize: 10, fontWeight: 700, cursor: "help" }}
+          >
+            descartada
+          </span>
+        )}
         {c.recycle_sin_circuito && (
           <span
             className="badge"
@@ -159,6 +168,28 @@ export function ReassignBar({
   if (selected.size === 0 && !msg) return null;
   const verbo = assign ? "Asignar" : "Reasignar";
 
+  // Descarte en bulk (Ramiro 2026-08-06): para las empresas del pool que no califican para
+  // asignarse a nadie y quedaban por siempre en "sin BDR asignado". Escribe Descalificada
+  // en Attio y las registra como descartadas (badge "descartada", sin flag de revisión).
+  function handleDescartar() {
+    const n = selected.size;
+    if (!confirm(`¿Descartar ${n} empresa${n === 1 ? "" : "s"}?\n\nEsto marca Outbound Stage = "Descalificada" en Attio (salen del pool de asignación y cuentan en DropOff como descartadas deliberadas). No se puede deshacer desde el dashboard.`)) return;
+    startTransition(async () => {
+      const res = await descartarCompaniesAction([...selected]);
+      if (res.success) {
+        const errDetail = res.errors?.length
+          ? ` · ${res.errors.length} con error (${res.errors[0].substring(0, 90)})`
+          : "";
+        setMsg(`✓ ${res.updated} empresa${res.updated === 1 ? "" : "s"} descartada${res.updated === 1 ? "" : "s"}${errDetail}`);
+        onClear();
+        router.refresh();
+      } else {
+        setMsg(`Error al descartar: ${res.error}`);
+      }
+      setTimeout(() => setMsg(null), 10000);
+    });
+  }
+
   function handleReassign() {
     const target = bdrOptions.find((b) => b.id === bdrId);
     if (!target) return;
@@ -227,6 +258,19 @@ export function ReassignBar({
             }}
           >
             {isPending ? `${verbo.replace(/ar$/, "ando")}…` : `${verbo} en Attio`}
+          </button>
+          <span style={{ width: 1, height: 18, background: "var(--border-tertiary)" }} />
+          <button
+            onClick={handleDescartar}
+            disabled={isPending}
+            title="Para empresas que no califican para asignar a ningún BDR: las marca Descalificada en Attio y salen del pool"
+            style={{
+              padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 8,
+              border: "1px solid var(--fg-status-error)", background: "transparent",
+              color: "var(--fg-status-error)", cursor: isPending ? "default" : "pointer",
+            }}
+          >
+            {isPending ? "Descartando…" : "Descartar (no asignar)"}
           </button>
           <button
             onClick={onClear}
