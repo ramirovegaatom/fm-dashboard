@@ -438,11 +438,14 @@ export type SeguimientoCompany = {
   //   evento, Candela 2026-08-06), badge informativo.
   // - descalificada_sin_circuito: Descalificada en Attio sin circuito → cuenta en DropOff
   //   pero marcada; el porqué (industria/filtros) queda para mapear más adelante.
-  // - terminal_sin_circuito: Procesada/Lost/RECYCLE en Attio sin circuito → NO cuenta en esa
+  // - recycle_sin_circuito (iter. 2 2026-08-06): RECYCLE sin circuito → mismo tratamiento
+  //   que Descalificada: cuenta en Recycle pero marcada (se devolvió al pool sin trabajarla).
+  // - terminal_sin_circuito: Procesada/Lost en Attio sin circuito → NO cuenta en esa
   //   etapa (la fuente de verdad son las actividades), aparece en su etapa real con ⚠.
   positiva_sin_circuito: boolean;
   descalificada_sin_circuito: boolean;
   terminal_sin_circuito: boolean;
+  recycle_sin_circuito: boolean;
 };
 
 // Trae TODAS las filas de fm_seguimiento_companies (PostgREST corta en 1000 por request).

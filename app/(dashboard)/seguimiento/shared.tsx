@@ -18,16 +18,23 @@ export const ETAPAS: { key: EtapaKey; label: string; labelCorto: string; detalle
   { key: "siendo_prospectada", label: "Procesando", labelCorto: "Procesando", detalle: "Con contacto, Procesando, o con actividades iniciadas", color: "var(--fg-status-info)" },
   // 2026-07-23 (Ramiro): la fuente de verdad de estas etapas son las ACTIVIDADES, no el
   // stage manual de Attio. Circuito v2 (Ramiro+Candela 2026-08-06): circuito completo =
-  // ≥2 CONTACTOS con estructura (3 llamadas + 2 WA o 2+3) cada uno. Procesada/Lost/RECYCLE
-  // en Attio sin circuito NO cuentan en esa etapa — aparecen en su etapa real con ⚠.
-  { key: "procesada", label: "Procesada", labelCorto: "Procesada", detalle: "circuito completo: 2+ contactos con 3 llamadas + 2 WhatsApp (o 2+3) cada uno; incluye Lost con circuito", color: "var(--fg-secondary)" },
+  // ≥2 CONTACTOS con estructura (3 llamadas + 2 WA o 2+3) cada uno. Procesada/Lost en Attio
+  // sin circuito NO cuentan en esa etapa — aparecen en su etapa real con ⚠. Las etapas son
+  // EXCLUYENTES (cada empresa cuenta en una sola, la más avanzada); en el funnel general se
+  // presentan de forma acumulativa: "Procesadas" = positiva + sin respuesta + dropoff + recycle.
+  { key: "procesada", label: "Procesada sin respuesta", labelCorto: "Sin respuesta", detalle: "circuito completo (2+ contactos con 3 llamadas + 2 WhatsApp c/u) sin llegar a respuesta positiva; incluye Lost con circuito", color: "var(--fg-secondary)" },
   // Los QM/Cliente cuentan acá SIN exigir circuito (Candela 2026-08-06: los contactos de
   // evento vienen calientes y pueden convertir antes de completarlo — válido, con badge).
   { key: "respuesta_positiva", label: "Respuesta positiva", labelCorto: "Resp. positiva", detalle: "QM Agendada, QM Show, QM No Show, Cliente — válida aun sin circuito completo", color: "var(--fg-status-success)" },
   { key: "dropoff", label: "DropOff", labelCorto: "DropOff", detalle: "Descalificadas (no ICP) — las sin circuito completo llevan marca para revisar", color: "var(--fg-status-warning)" },
   // José 2026-07-17: Recycle separado de DropOff — no son lo mismo (vuelven al pool).
-  { key: "recycle", label: "Recycle", labelCorto: "Recycle", detalle: "recicladas al pool — solo cuentan acá con circuito completo", color: "var(--fg-status-brand)" },
+  // 2026-08-06 iter. 2 (Ramiro): mismo tratamiento que Descalificada — cuentan acá aunque
+  // no tengan circuito, marcadas (antes se degradaban y el funnel mostraba 0 con 66 en Attio).
+  { key: "recycle", label: "Recycle", labelCorto: "Recycle", detalle: "recicladas al pool — las sin circuito completo llevan marca para revisar", color: "var(--fg-status-brand)" },
 ];
+
+// Etapas que componen el acumulado "Procesadas" del funnel (terminaron su procesamiento).
+export const ETAPAS_PROCESADAS: EtapaKey[] = ["respuesta_positiva", "procesada", "dropoff", "recycle"];
 
 export const etapaRank = (e: EtapaKey) => ETAPAS.findIndex((x) => x.key === e);
 
@@ -76,6 +83,15 @@ export function CompanyRow({ c, showEtapa, showBdr, selected, onToggleSelect }: 
             style={{ background: "var(--bg-status-warning, var(--bg-secondary))", color: "var(--fg-status-warning)", fontSize: 10, fontWeight: 700, cursor: "help" }}
           >
             ⚠ sin circuito
+          </span>
+        )}
+        {c.recycle_sin_circuito && (
+          <span
+            className="badge"
+            title={`Reciclada en Attio sin circuito completo (${c.contactos_con_circuito}/2 contactos con estructura). Cuenta en Recycle pero se devolvió al pool sin trabajar el circuito — para revisar.`}
+            style={{ background: "var(--bg-status-error, var(--bg-secondary))", color: "var(--fg-status-error)", fontSize: 10, fontWeight: 700, cursor: "help" }}
+          >
+            recycle sin circuito
           </span>
         )}
         {c.descalificada_sin_circuito && (

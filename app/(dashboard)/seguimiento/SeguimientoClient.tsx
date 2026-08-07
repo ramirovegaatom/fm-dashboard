@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { SeguimientoCompany } from "@/lib/supabase";
 import { DateFilter, type DateRange } from "@/components/DateFilter";
-import { SIN_BDR, ETAPAS, etapaRank, CompanyRow, type EtapaKey } from "./shared";
+import { SIN_BDR, ETAPAS, ETAPAS_PROCESADAS, etapaRank, CompanyRow, type EtapaKey } from "./shared";
 
 // Spec del equipo + iteraciones José (2026-07-16/17): funnel por Outbound Stage VALIDADO
 // por actividades reales, scorecard por BDR con desglose por etapa, filtro de campaña con
@@ -21,7 +21,7 @@ function bdrDetailHref(name: string) {
 }
 
 // Detalle de una etapa del funnel general (José 2026-07-17). Propaga la campaña activa.
-function etapaHref(key: EtapaKey | "todas", campana: string) {
+function etapaHref(key: EtapaKey | "todas" | "procesadas", campana: string) {
   const params = new URLSearchParams({ e: key });
   if (campana !== "todas") params.set("campana", campana);
   return `/seguimiento/etapa?${params.toString()}`;
@@ -84,16 +84,22 @@ export function SeguimientoClient({ companies }: { companies: SeguimientoCompany
   const asignadas = filtered.length;
 
   // Contadores de los flags de circuito (Candela 2026-08-06): positivas que llegaron por
-  // stage (válidas, informativo) y descalificadas sin circuito (para revisar el criterio).
+  // stage (válidas, informativo) y descalificadas/recicladas sin circuito (para revisar).
   const flags = useMemo(() => {
-    let positivas = 0, descalificadas = 0, terminales = 0;
+    let positivas = 0, descalificadas = 0, terminales = 0, recycles = 0;
     for (const c of filtered) {
       if (c.positiva_sin_circuito) positivas++;
       if (c.descalificada_sin_circuito) descalificadas++;
       if (c.terminal_sin_circuito) terminales++;
+      if (c.recycle_sin_circuito) recycles++;
     }
-    return { positivas, descalificadas, terminales };
+    return { positivas, descalificadas, terminales, recycles };
   }, [filtered]);
+
+  // Funnel acumulativo (Ramiro 2026-08-06): las etapas son excluyentes en la data, pero se
+  // leen mejor como pipeline — de X asignadas: sin procesar → procesando → procesadas, y
+  // "Procesadas" se abre en sus 4 resultados. procesadas = suma de las etapas terminales.
+  const procesadasTotal = useMemo(() => ETAPAS_PROCESADAS.reduce((acc, k) => acc + funnel[k], 0), [funnel]);
 
   // 2026-07-23 (Camilo): empresas con campaña de evento pero SIN BDR asignado — el pool sin
   // dueño puede pasar desapercibido (error humano al cargar). Banner con acceso directo a
@@ -189,7 +195,8 @@ export function SeguimientoClient({ companies }: { companies: SeguimientoCompany
           bold
           href={etapaHref("todas", campana)}
         />
-        {ETAPAS.map((e) => (
+        {/* Pipeline: sin procesar → procesando → procesadas (acumulado que se abre en sus resultados) */}
+        {ETAPAS.filter((e) => !ETAPAS_PROCESADAS.includes(e.key)).map((e) => (
           <FunnelRow
             key={e.key}
             label={e.label}
@@ -200,20 +207,42 @@ export function SeguimientoClient({ companies }: { companies: SeguimientoCompany
             href={etapaHref(e.key, campana)}
           />
         ))}
+        <FunnelRow
+          label="Procesadas"
+          detalle="terminaron su procesamiento: respuesta positiva, sin respuesta, DropOff o Recycle"
+          value={procesadasTotal}
+          total={asignadas}
+          color="var(--fg-primary)"
+          bold
+          href={etapaHref("procesadas", campana)}
+        />
+        {ETAPAS.filter((e) => ETAPAS_PROCESADAS.includes(e.key)).map((e) => (
+          <FunnelRow
+            key={e.key}
+            label={e.label}
+            detalle={e.detalle}
+            value={funnel[e.key]}
+            total={asignadas}
+            color={e.color}
+            href={etapaHref(e.key, campana)}
+            indent
+          />
+        ))}
         <div className="text-muted" style={{ fontSize: 10, marginTop: 10 }}>
-          <strong>Circuito completo</strong> = 2 o más contactos de la empresa con la estructura de
-          actividades cada uno (3 llamadas + 2 WhatsApp, o 2+3). La fuente de verdad de “Sin procesar /
-          Procesando / Procesada” son las <strong>actividades reales</strong>, no el stage manual de
-          Attio: Procesada/Lost/RECYCLE sin circuito aparecen en su etapa real con{" "}
+          Cada empresa cuenta en UNA sola fila (la más avanzada); <strong>Procesadas</strong> es la suma
+          de sus 4 resultados. <strong>Circuito completo</strong> = 2 o más contactos de la empresa con la
+          estructura de actividades cada uno (3 llamadas + 2 WhatsApp, o 2+3). La fuente de verdad de “Sin
+          procesar / Procesando / Procesada sin respuesta” son las <strong>actividades reales</strong>, no
+          el stage manual de Attio: Procesada/Lost sin circuito aparecen en su etapa real con{" "}
           <span style={{ color: "var(--fg-status-warning)", fontWeight: 700 }}>⚠ sin circuito</span>
-          {flags.terminales > 0 ? ` (${flags.terminales} hoy)` : ""}. Las excepciones:{" "}
+          {flags.terminales > 0 ? ` (${flags.terminales} hoy)` : ""}. Las{" "}
           <span style={{ color: "var(--fg-status-success)", fontWeight: 700 }}>respuestas positivas</span>{" "}
           valen sin circuito porque los contactos de evento vienen calientes ({flags.positivas} “por
-          stage” hoy), y las <span style={{ color: "var(--fg-status-error)", fontWeight: 700 }}>descalificadas
-          sin circuito</span> ({flags.descalificadas} hoy) cuentan en DropOff pero quedan marcadas — el
-          criterio de descalificación sin trabajar el contacto está pendiente de mapear. Con el filtro de
-          fechas activo quedan fuera las campañas sin fecha de evento mapeada. Click en una etapa para ver
-          sus empresas.
+          stage” hoy). Las <span style={{ color: "var(--fg-status-error)", fontWeight: 700 }}>descalificadas
+          ({flags.descalificadas}) y recicladas ({flags.recycles}) sin circuito</span> cuentan en su etapa
+          pero quedan marcadas — el criterio de cerrar sin trabajar el contacto está pendiente de mapear.
+          Con el filtro de fechas activo quedan fuera las campañas sin fecha de evento mapeada. Click en
+          una fila para ver sus empresas.
         </div>
       </div>
 
@@ -441,8 +470,8 @@ function DropdownItem({ label, selected, onClick }: { label: string; selected: b
   );
 }
 
-function FunnelRow({ label, detalle, value, total, color, bold, href }: {
-  label: string; detalle: string; value: number; total: number; color: string; bold?: boolean; href: string;
+function FunnelRow({ label, detalle, value, total, color, bold, href, indent }: {
+  label: string; detalle: string; value: number; total: number; color: string; bold?: boolean; href: string; indent?: boolean;
 }) {
   const pct = total > 0 ? Math.round((value / total) * 100) : 0;
   return (
@@ -461,8 +490,9 @@ function FunnelRow({ label, detalle, value, total, color, bold, href }: {
         cursor: "pointer",
       }}
     >
-      <div style={{ width: 260, flexShrink: 0 }}>
+      <div style={{ width: 260, flexShrink: 0, paddingLeft: indent ? 22 : 0 }}>
         <div style={{ fontSize: 13, fontWeight: bold ? 700 : 600 }}>
+          {indent && <span style={{ color: "var(--fg-quaternary)", marginRight: 4 }}>↳</span>}
           {label} <span style={{ color: "var(--fg-quaternary)", fontSize: 11 }}>→</span>
         </div>
         <div className="text-muted" style={{ fontSize: 10 }}>{detalle}</div>

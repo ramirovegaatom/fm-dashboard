@@ -4,7 +4,8 @@ import { EtapaDetailClient } from "./EtapaDetailClient";
 
 export const dynamic = "force-dynamic";
 
-const ETAPA_KEYS = ["todas", "sin_prospectar", "siendo_prospectada", "procesada", "respuesta_positiva", "dropoff", "recycle"];
+// "procesadas" = acumulado de las 4 etapas terminales (fila agregada del funnel general).
+const ETAPA_KEYS = ["todas", "procesadas", "sin_prospectar", "siendo_prospectada", "procesada", "respuesta_positiva", "dropoff", "recycle"];
 
 // Detalle de una etapa del funnel general (José 2026-07-17): todas las empresas en ese
 // estadío, con BDR, campaña y la data completa. ?e=<etapa> (+ ?campana= opcional).

@@ -3,9 +3,10 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { SeguimientoCompany } from "@/lib/supabase";
-import { SIN_BDR, ETAPAS, etapaRank, CompanyRow, ReassignBar, type EtapaKey } from "../shared";
+import { SIN_BDR, ETAPAS, ETAPAS_PROCESADAS, etapaRank, CompanyRow, ReassignBar, type EtapaKey } from "../shared";
 
-type EtapaSel = EtapaKey | "todas";
+// "procesadas" = acumulado de las 4 etapas terminales (fila agregada del funnel general).
+type EtapaSel = EtapaKey | "todas" | "procesadas";
 
 // Detalle de una etapa del funnel general: todas las empresas en ese estadío con su BDR,
 // campaña y data completa. Pills para saltar de etapa + buscador + filtros. José 2026-07-17.
@@ -71,7 +72,9 @@ export function EtapaDetailClient({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     const list = companies.filter((c) => {
-      if (etapa !== "todas" && c.etapa_funnel !== etapa) return false;
+      if (etapa === "procesadas") {
+        if (!ETAPAS_PROCESADAS.includes(c.etapa_funnel)) return false;
+      } else if (etapa !== "todas" && c.etapa_funnel !== etapa) return false;
       if (campana !== "todas" && c.campana_evento !== campana) return false;
       if (bdr !== "todos" && (c.assigned_bdr_name ?? SIN_BDR) !== bdr) return false;
       if (q && !(c.company_name ?? "").toLowerCase().includes(q)) return false;
@@ -82,7 +85,12 @@ export function EtapaDetailClient({
     );
   }, [companies, etapa, campana, bdr, query]);
 
-  const etapaActiva = etapa !== "todas" ? ETAPAS.find((e) => e.key === etapa) : null;
+  const etapaActiva = etapa !== "todas" && etapa !== "procesadas" ? ETAPAS.find((e) => e.key === etapa) : null;
+  const headerLabel = etapa === "procesadas" ? "Procesadas" : etapaActiva ? etapaActiva.label : "Todas las empresas";
+  const headerDetalle = etapa === "procesadas"
+    ? "acumulado: terminaron su procesamiento (respuesta positiva, sin respuesta, DropOff o Recycle)"
+    : etapaActiva ? etapaActiva.detalle : "todas las etapas del funnel";
+  const procesadasCount = ETAPAS_PROCESADAS.reduce((acc, k) => acc + etapaCounts[k], 0);
 
   return (
     <div>
@@ -92,18 +100,35 @@ export function EtapaDetailClient({
           &larr; Volver a Estado actual
         </Link>
         <h2 style={{ fontSize: 20, fontWeight: 700, margin: "6px 0 2px", color: etapaActiva?.color }}>
-          {etapaActiva ? etapaActiva.label : "Todas las empresas"}
+          {headerLabel}
         </h2>
         <div className="text-muted" style={{ fontSize: 12 }}>
-          {etapaActiva ? etapaActiva.detalle : "todas las etapas del funnel"}
+          {headerDetalle}
           {campana !== "todas" ? ` · campaña: ${campana}` : ""}
         </div>
       </div>
 
       {/* Pills de etapa (cards clickeables, mismo patrón que el detalle por BDR) */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 12, margin: "18px 0 24px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(105px, 1fr))", gap: 12, margin: "18px 0 24px" }}>
         <EtapaCard label="Asignadas" value={totalCampana} color="var(--fg-primary)" active={etapa === "todas"} onClick={() => setEtapa("todas")} />
-        {ETAPAS.map((e) => (
+        {ETAPAS.filter((e) => !ETAPAS_PROCESADAS.includes(e.key)).map((e) => (
+          <EtapaCard
+            key={e.key}
+            label={e.labelCorto}
+            value={etapaCounts[e.key]}
+            color={e.color}
+            active={etapa === e.key}
+            onClick={() => setEtapa(etapa === e.key ? "todas" : e.key)}
+          />
+        ))}
+        <EtapaCard
+          label="Procesadas"
+          value={procesadasCount}
+          color="var(--fg-primary)"
+          active={etapa === "procesadas"}
+          onClick={() => setEtapa(etapa === "procesadas" ? "todas" : "procesadas")}
+        />
+        {ETAPAS.filter((e) => ETAPAS_PROCESADAS.includes(e.key)).map((e) => (
           <EtapaCard
             key={e.key}
             label={e.labelCorto}
