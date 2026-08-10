@@ -163,21 +163,40 @@ async function reassignBdr(companyIds: string[], bdrId: string) {
 // cuentan en DropOff) y registra el descarte en fm_company_discards para distinguirlo de
 // las descalificaciones del BDR: una descartada deliberada NO enciende el flag
 // descalificada_sin_circuito (el marcador de revisión de Candela).
+// outbound_stage es un atributo de tipo `status` en Attio. La API acepta el título como
+// string simple, pero según versión/atributo puede exigir el formato [{ status: "..." }].
+// Probamos el string y, si Attio lo rechaza, reintentamos con el array — y devolvemos el
+// error CRUDO del segundo intento para que se vea en el dashboard (2026-08-10: el botón
+// "no funcionaba" y el detalle del fallo no llegaba a la UI).
+async function patchOutboundStage(cid: string, titulo: string): Promise<string | null> {
+  const cuerpos = [
+    { data: { values: { outbound_stage: titulo } } },
+    { data: { values: { outbound_stage: [{ status: titulo }] } } },
+  ];
+  let ultimoError = "";
+  for (const body of cuerpos) {
+    try {
+      const r = await fetch(`${ATTIO_BASE}/objects/companies/records/${cid}`, {
+        method: "PATCH", headers: attioHeaders, body: JSON.stringify(body),
+      });
+      if (r.ok) return null;
+      const t = await r.text();
+      ultimoError = `HTTP ${r.status} ${t.substring(0, 200)}`;
+      console.error(`descartar PATCH ${cid} [${JSON.stringify(body.data.values).substring(0, 60)}]: ${ultimoError}`);
+      if (r.status !== 400 && r.status !== 422) break; // 401/403/404 no se arreglan cambiando el formato
+    } catch (e) {
+      ultimoError = String(e).substring(0, 200);
+      console.error(`descartar PATCH ${cid} threw: ${ultimoError}`);
+    }
+  }
+  return `${cid}: ${ultimoError}`;
+}
+
 async function descartarCompanies(companyIds: string[]) {
   let updated = 0; const errors: string[] = [];
   for (let i = 0; i < companyIds.length; i += 5) {
     const group = companyIds.slice(i, i + 5);
-    const results = await Promise.all(group.map(async (cid): Promise<string | null> => {
-      try {
-        const r = await fetch(`${ATTIO_BASE}/objects/companies/records/${cid}`, {
-          method: "PATCH",
-          headers: attioHeaders,
-          body: JSON.stringify({ data: { values: { outbound_stage: "Descalificada" } } }),
-        });
-        if (!r.ok) { const t = await r.text(); console.error(`descartar PATCH ${cid}: ${r.status} ${t.substring(0, 300)}`); return `${cid}: ${r.status} ${t.substring(0, 120)}`; }
-        return null;
-      } catch (e) { console.error(`descartar PATCH ${cid} threw: ${String(e)}`); return `${cid}: ${String(e).substring(0, 120)}`; }
-    }));
+    const results = await Promise.all(group.map((cid) => patchOutboundStage(cid, "Descalificada")));
     for (let g = 0; g < group.length; g++) { if (results[g]) errors.push(results[g]!); else updated++; }
   }
   // Reflejo local inmediato + registro del descarte (el cron tc re-sincroniza después).

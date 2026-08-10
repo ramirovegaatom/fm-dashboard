@@ -163,51 +163,65 @@ export function ReassignBar({
   const router = useRouter();
   const [bdrId, setBdrId] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
+  const [msgEsError, setMsgEsError] = useState(false);
+  // 2026-08-10: la confirmación es INLINE, no con confirm() del navegador. Si Chrome tiene
+  // los diálogos suprimidos en la pestaña (pasa al tildar "no volver a mostrar" o por
+  // política), confirm() devuelve false y el click no hacía NADA ni mostraba error — que es
+  // exactamente el síntoma que reportó Ramiro con el botón de descartar.
+  const [confirmando, setConfirmando] = useState<"descartar" | "reasignar" | null>(null);
   const [isPending, startTransition] = useTransition();
 
   if (selected.size === 0 && !msg) return null;
   const verbo = assign ? "Asignar" : "Reasignar";
 
+  function reportar(res: { success: boolean; updated: number; errors?: string[]; error?: string; bdrName?: string | null }, accion: string) {
+    // Si no se actualizó ninguna y hubo errores, es un FALLO: se muestra en rojo con el
+    // detalle crudo (antes decía "✓ 0 empresas descartadas" y parecía éxito).
+    if (!res.success) {
+      setMsg(`✗ Error al ${accion}: ${res.error ?? "sin detalle"}`);
+      setMsgEsError(true);
+      return;
+    }
+    if (res.updated === 0) {
+      setMsg(`✗ No se pudo ${accion} ninguna empresa${res.errors?.length ? `: ${res.errors[0].substring(0, 160)}` : " (sin detalle del error)"}`);
+      setMsgEsError(true);
+      return;
+    }
+    const errDetail = res.errors?.length ? ` · ${res.errors.length} con error (${res.errors[0].substring(0, 120)})` : "";
+    setMsg(`✓ ${res.updated} empresa${res.updated === 1 ? "" : "s"} ${accion === "descartar" ? "descartada" : "actualizada"}${res.updated === 1 ? "" : "s"}${errDetail}`);
+    setMsgEsError(false);
+  }
+
   // Descarte en bulk (Ramiro 2026-08-06): para las empresas del pool que no califican para
   // asignarse a nadie y quedaban por siempre en "sin BDR asignado". Escribe Descalificada
   // en Attio y las registra como descartadas (badge "descartada", sin flag de revisión).
   function handleDescartar() {
-    const n = selected.size;
-    if (!confirm(`¿Descartar ${n} empresa${n === 1 ? "" : "s"}?\n\nEsto marca Outbound Stage = "Descalificada" en Attio (salen del pool de asignación y cuentan en DropOff como descartadas deliberadas). No se puede deshacer desde el dashboard.`)) return;
+    setConfirmando(null);
     startTransition(async () => {
       const res = await descartarCompaniesAction([...selected]);
-      if (res.success) {
-        const errDetail = res.errors?.length
-          ? ` · ${res.errors.length} con error (${res.errors[0].substring(0, 90)})`
-          : "";
-        setMsg(`✓ ${res.updated} empresa${res.updated === 1 ? "" : "s"} descartada${res.updated === 1 ? "" : "s"}${errDetail}`);
+      reportar(res, "descartar");
+      if (res.success && res.updated > 0) {
         onClear();
         router.refresh();
-      } else {
-        setMsg(`Error al descartar: ${res.error}`);
       }
-      setTimeout(() => setMsg(null), 10000);
+      setTimeout(() => setMsg(null), 15000);
     });
   }
 
   function handleReassign() {
     const target = bdrOptions.find((b) => b.id === bdrId);
     if (!target) return;
-    if (!confirm(`¿${verbo} ${selected.size} empresa${selected.size === 1 ? "" : "s"} a ${target.name}?\n\nEsto actualiza el campo Assigned BDR en Attio.`)) return;
+    setConfirmando(null);
     startTransition(async () => {
       const res = await reassignBdrAction([...selected], target.id);
-      if (res.success) {
-        const errDetail = res.errors?.length
-          ? ` · ${res.errors.length} con error (${res.errors[0].substring(0, 90)})`
-          : "";
-        setMsg(`✓ ${res.updated} empresa${res.updated === 1 ? "" : "s"} ${assign ? "asignada" : "reasignada"}${res.updated === 1 ? "" : "s"} a ${res.bdrName ?? target.name}${errDetail}`);
+      reportar(res, verbo.toLowerCase());
+      if (res.success && res.updated > 0) {
+        setMsg(`✓ ${res.updated} empresa${res.updated === 1 ? "" : "s"} ${assign ? "asignada" : "reasignada"}${res.updated === 1 ? "" : "s"} a ${res.bdrName ?? target.name}`);
         onClear();
         setBdrId("");
         router.refresh();
-      } else {
-        setMsg(`Error al ${verbo.toLowerCase()}: ${res.error}`);
       }
-      setTimeout(() => setMsg(null), 10000);
+      setTimeout(() => setMsg(null), 15000);
     });
   }
 
@@ -247,42 +261,74 @@ export function ReassignBar({
               <option key={b.id} value={b.id}>{b.name}</option>
             ))}
           </select>
-          <button
-            onClick={handleReassign}
-            disabled={isPending || !bdrId}
-            style={{
-              padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 8, border: "none",
-              background: !bdrId ? "var(--bg-tertiary)" : "var(--bg-inverse-primary)",
-              color: !bdrId ? "var(--fg-quaternary)" : "var(--fg-inverse-primary)",
-              cursor: isPending || !bdrId ? "default" : "pointer",
-            }}
-          >
-            {isPending ? `${verbo.replace(/ar$/, "ando")}…` : `${verbo} en Attio`}
-          </button>
-          <span style={{ width: 1, height: 18, background: "var(--border-tertiary)" }} />
-          <button
-            onClick={handleDescartar}
-            disabled={isPending}
-            title="Para empresas que no califican para asignar a ningún BDR: las marca Descalificada en Attio y salen del pool"
-            style={{
-              padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 8,
-              border: "1px solid var(--fg-status-error)", background: "transparent",
-              color: "var(--fg-status-error)", cursor: isPending ? "default" : "pointer",
-            }}
-          >
-            {isPending ? "Descartando…" : "Descartar (no asignar)"}
-          </button>
-          <button
-            onClick={onClear}
-            disabled={isPending}
-            style={{ all: "unset", cursor: "pointer", fontSize: 11, fontWeight: 600, color: "var(--fg-quaternary)" }}
-          >
-            Limpiar selección
-          </button>
+          {confirmando === null ? (
+            <>
+              <button
+                onClick={() => setConfirmando("reasignar")}
+                disabled={isPending || !bdrId}
+                style={{
+                  padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 8, border: "none",
+                  background: !bdrId ? "var(--bg-tertiary)" : "var(--bg-inverse-primary)",
+                  color: !bdrId ? "var(--fg-quaternary)" : "var(--fg-inverse-primary)",
+                  cursor: isPending || !bdrId ? "default" : "pointer",
+                }}
+              >
+                {isPending ? `${verbo.replace(/ar$/, "ando")}…` : `${verbo} en Attio`}
+              </button>
+              <span style={{ width: 1, height: 18, background: "var(--border-tertiary)" }} />
+              <button
+                onClick={() => setConfirmando("descartar")}
+                disabled={isPending}
+                title="Para empresas que no califican para asignar a ningún BDR: las marca Descalificada en Attio y salen del pool"
+                style={{
+                  padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 8,
+                  border: "1px solid var(--fg-status-error)", background: "transparent",
+                  color: "var(--fg-status-error)", cursor: isPending ? "default" : "pointer",
+                }}
+              >
+                {isPending ? "Descartando…" : "Descartar (no asignar)"}
+              </button>
+              <button
+                onClick={onClear}
+                disabled={isPending}
+                style={{ all: "unset", cursor: "pointer", fontSize: 11, fontWeight: 600, color: "var(--fg-quaternary)" }}
+              >
+                Limpiar selección
+              </button>
+            </>
+          ) : (
+            /* Confirmación inline: sin depender del confirm() del navegador */
+            <>
+              <span style={{ fontSize: 12, color: "var(--fg-secondary)" }}>
+                {confirmando === "descartar"
+                  ? <>Se marcan <strong>Descalificada</strong> en Attio y salen del pool de asignación. ¿Confirmás?</>
+                  : <>Se escribe el <strong>Assigned BDR</strong> en Attio para {selected.size} empresa{selected.size === 1 ? "" : "s"}. ¿Confirmás?</>}
+              </span>
+              <button
+                onClick={confirmando === "descartar" ? handleDescartar : handleReassign}
+                disabled={isPending}
+                style={{
+                  padding: "6px 14px", fontSize: 12, fontWeight: 700, borderRadius: 8, border: "none",
+                  background: confirmando === "descartar" ? "var(--fg-status-error)" : "var(--bg-inverse-primary)",
+                  color: confirmando === "descartar" ? "#fff" : "var(--fg-inverse-primary)",
+                  cursor: isPending ? "default" : "pointer",
+                }}
+              >
+                {isPending ? "Aplicando…" : `Sí, ${confirmando}`}
+              </button>
+              <button
+                onClick={() => setConfirmando(null)}
+                disabled={isPending}
+                style={{ all: "unset", cursor: "pointer", fontSize: 11, fontWeight: 600, color: "var(--fg-quaternary)" }}
+              >
+                Cancelar
+              </button>
+            </>
+          )}
         </>
       ) : null}
       {msg && (
-        <span style={{ fontSize: 12, fontWeight: 600, color: msg.startsWith("✓") ? "var(--fg-status-success)" : "var(--fg-status-error)" }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: msgEsError ? "var(--fg-status-error)" : "var(--fg-status-success)" }}>
           {msg}
         </span>
       )}
