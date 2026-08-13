@@ -13,6 +13,12 @@
 // por PERSONA: un solo mensaje con sus accionables ordenados por urgencia y agrupados por
 // evento, cada uno con su desplegable de avance. Los value de los selects no cambian
 // (`${accionable_id}|${valor}`), así que fm-slack-interact sigue funcionando igual.
+//
+// v3 (2026-08-12, Ramiro): VENTANA DE EVENTOS ELEGIBLES (ver eventoElegible). Dos cosas que
+// habrían salido mal al encender los crons: (a) faseAvisos no filtraba eventos pasados y
+// habría mandado DMs de eventos ya sucedidos, y (b) la política de arranque de Camilo no se
+// podía implementar sembrando fm_slack_notifications, porque eso silencia el aviso pero
+// arma el pedido de status 7 días después. Se resuelve con un corte por FECHA DE EVENTO.
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const supabase = createClient(
@@ -21,6 +27,22 @@ const supabase = createClient(
 );
 
 const SLACK_TOKEN = Deno.env.get("SLACK_BOT_TOKEN") ?? "";
+
+// Política de arranque (1:1 Camilo 2026-08-10): "los DMs arrancan desde la semana del 18,
+// nada retroactivo — ni los eventos anteriores ni los de la semana del 12". El corte va por
+// FECHA DE EVENTO (no por fecha_aviso): un evento del 18 en adelante entra completo, con
+// todos sus accionables; los eventos anteriores no reciben nada nunca, ni aviso ni status.
+// Editable por env var sin redeploy (FM_BOT_CUTOVER=YYYY-MM-DD).
+//
+// ⚠️ Por qué NO se sembró fm_slack_notifications para silenciar el backlog: faseStatus elige
+// por "última notificación registrada", así que el seed habría re-armado el pedido de status
+// a los 7 días y a Tincho le llegaba igual el digest de 12 eventos que se quiso evitar.
+const CUTOVER_EVENTOS = Deno.env.get("FM_BOT_CUTOVER") ?? "2026-08-18";
+
+// Días de gracia DESPUÉS del evento en los que el evento sigue en el circuito. Hace falta
+// porque post_listas tiene dias_antes = -1: su fecha_aviso cae el día DESPUÉS del evento, y
+// con un corte seco en "fecha >= hoy" ese accionable no se avisaría nunca.
+const GRACIA_POST_EVENTO_DIAS = 14;
 
 async function slackPost(channel: string, text: string, blocks?: unknown[]) {
   const res = await fetch("https://slack.com/api/chat.postMessage", {
@@ -56,6 +78,22 @@ type Accionable = {
 };
 
 const hoy = () => new Date().toISOString().slice(0, 10);
+
+function isoMenosDias(iso: string, dias: number): string {
+  const d = new Date(iso + "T12:00:00Z");
+  d.setUTCDate(d.getUTCDate() - dias);
+  return d.toISOString().slice(0, 10);
+}
+
+// Único lugar donde se decide si un evento entra al circuito de DMs. Lo usan avisos y status
+// para que nadie reciba un pedido de status de algo que nunca se le avisó (y al revés).
+function eventoElegible(a: Accionable): boolean {
+  const e = a.fm_upcoming_events;
+  if (e.estado === "Cancelado") return false;
+  if (e.fecha < CUTOVER_EVENTOS) return false; // política de arranque, ver arriba
+  if (e.fecha < isoMenosDias(hoy(), GRACIA_POST_EVENTO_DIAS)) return false; // evento viejo
+  return true;
+}
 
 // slack_user_id admite varios destinatarios separados por coma (ej: Jorge y Gustavo).
 function destinatarios(ids: string | null): string[] {
@@ -226,9 +264,7 @@ async function pendientesDeAviso(): Promise<Accionable[]> {
     // incluye NULL y true, que es la intención: el DM sirve para que marquen si aplica.
     .not("aplica", "is", false)
     .lt("progreso", 100);
-  const candidatos = ((data ?? []) as Accionable[]).filter(
-    (a) => a.fm_upcoming_events.estado !== "Cancelado"
-  );
+  const candidatos = ((data ?? []) as Accionable[]).filter(eventoElegible);
   const { data: enviados } = await supabase
     .from("fm_slack_notifications")
     .select("accionable_id")
@@ -296,6 +332,7 @@ async function faseAvisos() {
 
   return {
     fase: "avisos",
+    cutover: CUTOVER_EVENTOS,
     personas: grupos.size,
     accionables: pendientes.length,
     enviados: filas.filter((f) => f.ok).length,
@@ -319,9 +356,9 @@ async function faseStatus() {
     // incluye NULL y true, que es la intención: el DM sirve para que marquen si aplica.
     .not("aplica", "is", false)
     .lt("progreso", 100);
-  const candidatos = ((data ?? []) as Accionable[]).filter(
-    (a) => a.fm_upcoming_events.estado !== "Cancelado" && a.fm_upcoming_events.fecha >= hoy()
-  );
+  // Misma ventana que los avisos: antes acá había un `fecha >= hoy()` propio que dejaba
+  // afuera a post_listas (avisa el día después del evento). Ahora manda eventoElegible.
+  const candidatos = ((data ?? []) as Accionable[]).filter(eventoElegible);
 
   const { data: pedidos } = await supabase
     .from("fm_slack_notifications")
@@ -373,6 +410,7 @@ async function faseStatus() {
 
   return {
     fase: "status",
+    cutover: CUTOVER_EVENTOS,
     personas: grupos.size,
     accionables: pendientes.length,
     enviados: filas.filter((f) => f.ok).length,
@@ -400,7 +438,7 @@ async function fasePreview(target: string) {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `:mag: *PREVIEW — así arrancarían los avisos*\nAbajo va, uno por uno, el mensaje que recibiría cada persona. *Nadie más recibe nada*: todo esto te llega solo a vos y no queda registrado como enviado.\n\n*${grupos.size} personas · ${pendientes.length} accionables:*\n${resumen}\n\n:warning: Los desplegables son reales: si tocás uno, se actualiza el avance de ese accionable en el dashboard.`,
+        text: `:mag: *PREVIEW — así arrancarían los avisos*\nAbajo va, uno por uno, el mensaje que recibiría cada persona. *Nadie más recibe nada*: todo esto te llega solo a vos y no queda registrado como enviado.\n\nSolo entran eventos con fecha *>= ${CUTOVER_EVENTOS}* (política de arranque: nada retroactivo).\n\n*${grupos.size} personas · ${pendientes.length} accionables:*\n${resumen}\n\n:warning: Los desplegables son reales: si tocás uno, se actualiza el avance de ese accionable en el dashboard.`,
       },
     }]
   );
@@ -419,7 +457,7 @@ async function fasePreview(target: string) {
     }
     enviados.push({ slack_id: slackId, responsable: items[0].responsable, accionables: items.length, mensajes: mensajes.length, ok });
   }
-  return { ok: true, fase: "preview", target, personas: grupos.size, accionables: pendientes.length, detalle: enviados };
+  return { ok: true, fase: "preview", cutover: CUTOVER_EVENTOS, target, personas: grupos.size, accionables: pendientes.length, detalle: enviados };
 }
 
 Deno.serve(async (req) => {

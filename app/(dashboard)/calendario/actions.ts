@@ -27,13 +27,39 @@ export type UpcomingEventInput = {
   meta_wons?: number | null;
   meta_mrr?: number | null;
   costo_estimado?: number | null;
+  asana_project_gid?: string | null; // se pega la URL del proyecto; se guarda el GID
 };
+
+// El campo de Asana se completa pegando el link del proyecto (así lo acordó Mario), pero lo
+// que sirve para la API es el GID. Aceptamos las dos URLs que devuelve Asana hoy y el GID
+// pelado; si no se puede extraer, avisamos en vez de guardar basura silenciosamente.
+//   nueva: https://app.asana.com/1/1176142409313345/project/1216775021660455/list
+//   vieja: https://app.asana.com/0/1216775021660455/1216775408132811
+// (sin export: en un archivo "use server" solo se pueden exportar funciones async)
+function parseAsanaProjectGid(raw: string): string | null {
+  const s = raw.trim();
+  if (!s) return null;
+  if (/^\d+$/.test(s)) return s;
+  const nuevo = s.match(/\/project\/(\d+)/);
+  if (nuevo) return nuevo[1];
+  const viejo = s.match(/app\.asana\.com\/0\/(\d+)/);
+  if (viejo) return viejo[1];
+  return null;
+}
 
 export async function saveUpcomingEvent(input: UpcomingEventInput) {
   if (!input.nombre?.trim()) throw new Error("El nombre es obligatorio");
   if (!input.fecha) throw new Error("La fecha es obligatoria");
   if (input.fecha_fin && input.fecha_fin < input.fecha) {
     throw new Error("La fecha de fin no puede ser anterior a la de inicio");
+  }
+
+  const asanaRaw = input.asana_project_gid?.trim() ?? "";
+  const asanaGid = parseAsanaProjectGid(asanaRaw);
+  if (asanaRaw && !asanaGid) {
+    throw new Error(
+      "No pude leer el proyecto de Asana de ese link. Pegá la URL del proyecto (app.asana.com/…/project/…) o el GID."
+    );
   }
 
   const row = {
@@ -58,6 +84,7 @@ export async function saveUpcomingEvent(input: UpcomingEventInput) {
     meta_wons: input.meta_wons ?? null,
     meta_mrr: input.meta_mrr ?? null,
     costo_estimado: input.costo_estimado ?? null,
+    asana_project_gid: asanaGid,
     updated_at: new Date().toISOString(),
   };
 

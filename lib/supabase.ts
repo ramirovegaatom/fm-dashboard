@@ -310,6 +310,9 @@ export type UpcomingEvent = {
   meta_wons: number | null;
   meta_mrr: number | null;
   costo_estimado: number | null;
+  // Proyecto de Asana del evento (uno por evento, portfolio 1216774054127024). Se pega la
+  // URL en /calendario y la server action guarda el GID normalizado. 2026-08-12.
+  asana_project_gid: string | null;
   created_at: string;
   updated_at: string;
   updated_by: string | null;

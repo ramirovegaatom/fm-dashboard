@@ -533,6 +533,7 @@ function EventForm({
     meta_wons: evento?.meta_wons ?? null,
     meta_mrr: evento?.meta_mrr ?? null,
     costo_estimado: evento?.costo_estimado ?? null,
+    asana_project_gid: evento?.asana_project_gid ?? "",
   });
 
   function setNum(key: keyof UpcomingEventInput, value: string) {
@@ -690,13 +691,30 @@ function EventForm({
           Plan de acción Ventas (link)
           <input value={form.plan_ventas_link ?? ""} onChange={(e) => set("plan_ventas_link", e.target.value)} placeholder="https://…" style={inputStyle} />
         </label>
+        <label style={{ ...labelStyle, gridColumn: "1 / -1" }}>
+          Proyecto de Asana del evento (link)
+          <input
+            value={form.asana_project_gid ?? ""}
+            onChange={(e) => set("asana_project_gid", e.target.value)}
+            placeholder="https://app.asana.com/1/…/project/…"
+            style={inputStyle}
+          />
+          <span style={{ fontSize: 11, fontWeight: 500, color: "var(--fg-quaternary)", marginTop: 4 }}>
+            Pegá el link del proyecto del evento. Es lo que va a usar el bot para linkear cada accionable con su tarea de Asana.
+          </span>
+        </label>
       </div>
 
-      {evento && (evento.ppt_link || evento.plan_fm_link || evento.plan_ventas_link) && (
+      {evento && (evento.ppt_link || evento.plan_fm_link || evento.plan_ventas_link || evento.asana_project_gid) && (
         <div style={{ display: "flex", gap: 10, marginTop: 12, flexWrap: "wrap" }}>
           {evento.ppt_link && <a href={evento.ppt_link} target="_blank" rel="noopener noreferrer" style={linkChip}>📊 PPT Atom ↗</a>}
           {evento.plan_fm_link && <a href={evento.plan_fm_link} target="_blank" rel="noopener noreferrer" style={linkChip}>📋 Plan FM ↗</a>}
           {evento.plan_ventas_link && <a href={evento.plan_ventas_link} target="_blank" rel="noopener noreferrer" style={linkChip}>💼 Plan Ventas ↗</a>}
+          {evento.asana_project_gid && (
+            <a href={`https://app.asana.com/0/${evento.asana_project_gid}`} target="_blank" rel="noopener noreferrer" style={linkChip}>
+              ✅ Proyecto Asana ↗
+            </a>
+          )}
         </div>
       )}
 
