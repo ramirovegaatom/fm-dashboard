@@ -141,6 +141,17 @@ function destinatarios(ids: string | null): string[] {
   return (ids ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 }
 
+// Un accionable puede tener más de un destinatario (base_datos: Martín genera y Bruno
+// enriquece; handoff: Martín y Cande). El progreso es UNO solo y compartido, así que quien
+// lo recibe tiene que saber que no depende solo de él — si no, o lo hacen dos veces o
+// ninguno. Se usa la sintaxis <@ID>: el nombre lo resuelve Slack (no hay diccionario que
+// mantener) y no le llega notificación a la persona mencionada. 2026-08-13.
+function compartidoCon(a: Accionable, paraQuien: string): string {
+  const otros = destinatarios(a.slack_user_id).filter((d) => d !== paraQuien);
+  if (otros.length === 0) return "";
+  return ` · compartido con ${otros.map((d) => `<@${d}>`).join(", ")}`;
+}
+
 // Agrupa accionables por destinatario individual: un accionable con 2 IDs entra en los dos.
 // La clave del digest: cada persona recibe UN mensaje con todo lo suyo.
 function porDestinatario(accionables: Accionable[]): Map<string, Accionable[]> {
@@ -190,7 +201,7 @@ function selectAvance(a: Accionable, condicional: boolean) {
 
 // Digest de UNA persona: encabezado + sus accionables agrupados por evento, cada uno con
 // su desplegable. Devuelve varios mensajes si no entra en el límite de bloques de Slack.
-function armarDigest(items: Accionable[], intro: string, condicionales: Set<string>): { text: string; blocks: unknown[] }[] {
+function armarDigest(items: Accionable[], intro: string, condicionales: Set<string>, paraQuien: string): { text: string; blocks: unknown[] }[] {
   const eventos = new Map<string, Accionable[]>();
   for (const a of items) {
     const arr = eventos.get(a.event_id) ?? [];
@@ -215,7 +226,7 @@ function armarDigest(items: Accionable[], intro: string, condicionales: Set<stri
     for (const a of arr) {
       grupo.push({
         type: "section",
-        text: { type: "mrkdwn", text: `*${a.nombre}*\n_${a.progreso > 0 ? `avance actual: ${a.progreso}%` : "sin arrancar"}_` },
+        text: { type: "mrkdwn", text: `*${a.nombre}*\n_${a.progreso > 0 ? `avance actual: ${a.progreso}%` : "sin arrancar"}_${compartidoCon(a, paraQuien)}` },
         accessory: selectAvance(a, condicionales.has(a.template_clave ?? "")),
       });
     }
@@ -337,7 +348,11 @@ async function enviarPorBloque(
   items: Accionable[],
   condicionales: Set<string>,
   tipo: "aviso" | "status",
-  enviar: (text: string, blocks: unknown[]) => Promise<{ ok: boolean; detalle: string | null }>
+  enviar: (text: string, blocks: unknown[]) => Promise<{ ok: boolean; detalle: string | null }>,
+  // De quién es el digest. En el preview NO coincide con el destinatario real del envío
+  // (todo va a Ramiro), y tiene que ser el original para que la etiqueta de compartidos
+  // diga lo mismo que vería esa persona.
+  paraQuien: string
 ): Promise<{ ok: boolean; detalle: string | null; mensajes: number }> {
   const porBloque = new Map<string, { bloque: Bloque; items: Accionable[] }>();
   for (const a of items) {
@@ -354,7 +369,7 @@ async function enviarPorBloque(
   let detalle: string | null = null;
   let mensajes = 0;
   for (const { bloque, items: delBloque } of ordenados) {
-    for (const m of armarDigest(delBloque, introDigest(delBloque, condicionales, tipo, bloque), condicionales)) {
+    for (const m of armarDigest(delBloque, introDigest(delBloque, condicionales, tipo, bloque), condicionales, paraQuien)) {
       const r = await enviar(m.text, m.blocks);
       mensajes++;
       if (!r.ok) { ok = false; detalle = r.detalle; }
@@ -377,7 +392,7 @@ async function faseAvisos() {
   const resultado = new Map<string, { ok: boolean; detalle: string | null }>();
   for (const [slackId, items] of grupos) {
     const { ok: okPersona, detalle } = await enviarPorBloque(
-      items, condicionales, "aviso", (text, blocks) => slackPost(slackId, text, blocks)
+      items, condicionales, "aviso", (text, blocks) => slackPost(slackId, text, blocks), slackId
     );
     for (const a of items) {
       const prev = resultado.get(a.id);
@@ -466,7 +481,7 @@ async function faseStatus() {
   const resultado = new Map<string, { ok: boolean; detalle: string | null }>();
   for (const [slackId, items] of grupos) {
     const { ok: okPersona, detalle } = await enviarPorBloque(
-      items, condicionales, "status", (text, blocks) => slackPost(slackId, text, blocks)
+      items, condicionales, "status", (text, blocks) => slackPost(slackId, text, blocks), slackId
     );
     for (const a of items) {
       const prev = resultado.get(a.id);
@@ -525,7 +540,7 @@ async function fasePreview(target: string) {
       type: "context",
       elements: [{ type: "mrkdwn", text: `:arrow_down: *Esto le llegaría a <@${slackId}>* (${items[0].responsable ?? "?"}) — ${items.length} accionables en ${bloques.size} bloque${bloques.size === 1 ? "" : "s"}: ${[...bloques].join(" · ")}` }],
     }]);
-    const r = await enviarPorBloque(items, condicionales, "aviso", (text, blocks) => slackPost(target, text, blocks));
+    const r = await enviarPorBloque(items, condicionales, "aviso", (text, blocks) => slackPost(target, text, blocks), slackId);
     enviados.push({ slack_id: slackId, responsable: items[0].responsable, accionables: items.length, mensajes: r.mensajes, ok: r.ok });
   }
   return { ok: true, fase: "preview", cutover: CUTOVER_EVENTOS, target, personas: grupos.size, accionables: pendientes.length, detalle: enviados };
