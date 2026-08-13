@@ -19,6 +19,12 @@
 // habría mandado DMs de eventos ya sucedidos, y (b) la política de arranque de Camilo no se
 // podía implementar sembrando fm_slack_notifications, porque eso silencia el aviso pero
 // arma el pedido de status 7 días después. Se resuelve con un corte por FECHA DE EVENTO.
+//
+// v4 (2026-08-13, Ramiro): BLOQUES POR CERCANÍA (ver BLOQUES). El digest de v2 mandaba un
+// solo mensaje por persona ordenado por fecha, así que "el evento es mañana" y "el evento es
+// en 21 días" pedían lo mismo con el mismo tono. Ahora cada horizonte sale como un DM aparte
+// (esta semana / la que viene / en dos / más adelante) y los eventos lejanos además se
+// preguntan más espaciado.
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const supabase = createClient(
@@ -58,13 +64,48 @@ function fmtFecha(iso: string) {
   return new Date(iso + "T12:00:00Z").toLocaleDateString("es-AR", { day: "2-digit", month: "long", timeZone: "UTC" });
 }
 
+function diasHasta(iso: string): number {
+  return Math.round((new Date(iso + "T12:00:00Z").getTime() - new Date(hoy() + "T12:00:00Z").getTime()) / 86_400_000);
+}
+
 // Cuántos días faltan para el evento, en texto corto y humano.
 function urgencia(iso: string): string {
-  const dias = Math.round((new Date(iso + "T12:00:00Z").getTime() - new Date(hoy() + "T12:00:00Z").getTime()) / 86_400_000);
+  const dias = diasHasta(iso);
   if (dias < 0) return `fue hace ${Math.abs(dias)} día${Math.abs(dias) === 1 ? "" : "s"}`;
   if (dias === 0) return "es HOY";
   if (dias === 1) return "es MAÑANA";
   return `en ${dias} días`;
+}
+
+// BLOQUES POR CERCANÍA (pedido Ramiro 2026-08-13). Antes cada persona recibía UN mensaje con
+// todos sus accionables ordenados por fecha: al mismo nivel "el evento es mañana" y "el
+// evento es en 21 días". Ahora cada horizonte sale como un DM aparte, con su encabezado y su
+// tono. Se mandan del más lejano al más urgente, para que el que quede arriba de todo en
+// Slack (el último) sea el que corre.
+//
+// frecuenciaMin = piso de días entre pedidos de status para ese horizonte. Solo puede ESPACIAR
+// respecto de fm_accionables_template.frecuencia_status_dias (7), nunca apretar: un evento a
+// 6 semanas no necesita que le pregunten todas las semanas. Para volver al comportamiento
+// anterior, poner los cuatro frecuenciaMin en 0.
+type Bloque = {
+  clave: string;
+  orden: number;
+  emoji: string;
+  titulo: string;
+  nota: string;
+  frecuenciaMin: number;
+};
+
+const BLOQUES: Bloque[] = [
+  { clave: "esta_semana", orden: 0, emoji: ":red_circle:", titulo: "Esta semana", nota: "Esto es lo que corre.", frecuenciaMin: 0 },
+  { clave: "semana_que_viene", orden: 1, emoji: ":large_orange_circle:", titulo: "La semana que viene", nota: "Entra en zona de preparación.", frecuenciaMin: 0 },
+  { clave: "en_dos_semanas", orden: 2, emoji: ":large_yellow_circle:", titulo: "En dos semanas", nota: "Buen momento para arrancar.", frecuenciaMin: 10 },
+  { clave: "mas_adelante", orden: 3, emoji: ":white_circle:", titulo: "Más adelante", nota: "Sin apuro: es para tenerlo en el radar.", frecuenciaMin: 14 },
+];
+
+function bloqueDe(fechaEvento: string): Bloque {
+  const semana = Math.floor(Math.max(diasHasta(fechaEvento), 0) / 7);
+  return BLOQUES[Math.min(semana, BLOQUES.length - 1)];
 }
 
 type Accionable = {
@@ -205,7 +246,7 @@ function armarDigest(items: Accionable[], intro: string, condicionales: Set<stri
 
   tandas.forEach((t, i) => {
     mensajes.push({
-      text: `Tenés ${items.length} accionable${items.length === 1 ? "" : "s"} de eventos próximos`,
+      text: `${bloqueDe(items[0].fm_upcoming_events.fecha).titulo}: ${items.length} accionable${items.length === 1 ? "" : "s"} de eventos`,
       blocks: [cabecera(i + 1, tandas.length), ...t, {
         type: "context",
         elements: [{ type: "mrkdwn", text: "También podés actualizar todo desde el dashboard: <https://fm-dashboard-psi.vercel.app/calendario|Calendario de eventos>" }],
@@ -276,16 +317,50 @@ async function pendientesDeAviso(): Promise<Accionable[]> {
 // Texto de encabezado. NO invita a responderle al bot: en Slack los mensajes a la app están
 // deshabilitados (2026-08-07). La salida para "no aplica" es la opción del desplegable, y
 // para todo lo demás está el link al dashboard que va al pie del digest.
-function introDigest(items: Accionable[], condicionales: Set<string>, tipo: "aviso" | "status") {
+function introDigest(items: Accionable[], condicionales: Set<string>, tipo: "aviso" | "status", bloque: Bloque) {
   const n = items.length;
   const plural = n === 1 ? "" : "s";
   const tieneCondicionales = items.some((a) => condicionales.has(a.template_clave ?? ""));
-  const nota = tieneCondicionales
+  const notaCond = tieneCondicionales
     ? " Si alguno no corresponde a ese evento, elegí *🚫 No aplica* y no te lo vuelvo a pedir."
     : "";
-  return tipo === "aviso"
-    ? `:calendar: *Tenés ${n} accionable${plural} de eventos que se vienen*\nMarcá tu avance en cada uno con el desplegable.${nota}`
-    : `:bar_chart: *¿Cómo venís con estos ${n} accionable${plural}?*\nActualizá el avance con el desplegable — así el equipo ve el estado real sin tener que preguntarte.${nota}`;
+  const accion = tipo === "aviso"
+    ? "Marcá tu avance en cada uno con el desplegable."
+    : "Actualizá el avance con el desplegable — así el equipo ve el estado real sin tener que preguntarte.";
+  return `${bloque.emoji} *${bloque.titulo}* · ${n} accionable${plural}\n${bloque.nota} ${accion}${notaCond}`;
+}
+
+// Manda a UNA persona sus accionables, partidos en un DM por bloque de cercanía. Devuelve
+// ok=false si falló algún envío. `enviar` se inyecta para que el preview redirija todo al
+// mismo destinatario sin duplicar la lógica de armado.
+async function enviarPorBloque(
+  items: Accionable[],
+  condicionales: Set<string>,
+  tipo: "aviso" | "status",
+  enviar: (text: string, blocks: unknown[]) => Promise<{ ok: boolean; detalle: string | null }>
+): Promise<{ ok: boolean; detalle: string | null; mensajes: number }> {
+  const porBloque = new Map<string, { bloque: Bloque; items: Accionable[] }>();
+  for (const a of items) {
+    const b = bloqueDe(a.fm_upcoming_events.fecha);
+    const slot = porBloque.get(b.clave) ?? { bloque: b, items: [] };
+    slot.items.push(a);
+    porBloque.set(b.clave, slot);
+  }
+
+  // Del más lejano al más urgente: en Slack el último mensaje queda arriba de todo.
+  const ordenados = [...porBloque.values()].sort((x, y) => y.bloque.orden - x.bloque.orden);
+
+  let ok = true;
+  let detalle: string | null = null;
+  let mensajes = 0;
+  for (const { bloque, items: delBloque } of ordenados) {
+    for (const m of armarDigest(delBloque, introDigest(delBloque, condicionales, tipo, bloque), condicionales)) {
+      const r = await enviar(m.text, m.blocks);
+      mensajes++;
+      if (!r.ok) { ok = false; detalle = r.detalle; }
+    }
+  }
+  return { ok, detalle, mensajes };
 }
 
 // Aviso inicial: UN digest por persona con todos sus accionables nuevos.
@@ -301,13 +376,9 @@ async function faseAvisos() {
   // Un accionable puede tener 2 destinatarios: se registra una sola vez, ok = todos ok.
   const resultado = new Map<string, { ok: boolean; detalle: string | null }>();
   for (const [slackId, items] of grupos) {
-    const mensajes = armarDigest(items, introDigest(items, condicionales, "aviso"), condicionales);
-    let okPersona = true;
-    let detalle: string | null = null;
-    for (const m of mensajes) {
-      const r = await slackPost(slackId, m.text, m.blocks);
-      if (!r.ok) { okPersona = false; detalle = r.detalle; }
-    }
+    const { ok: okPersona, detalle } = await enviarPorBloque(
+      items, condicionales, "aviso", (text, blocks) => slackPost(slackId, text, blocks)
+    );
     for (const a of items) {
       const prev = resultado.get(a.id);
       resultado.set(a.id, { ok: (prev?.ok ?? true) && okPersona, detalle: detalle ?? prev?.detalle ?? null });
@@ -344,7 +415,13 @@ async function faseAvisos() {
 // días. También agrupado: un digest por persona.
 async function faseStatus() {
   const { data: templates } = await supabase.from("fm_accionables_template").select("clave, frecuencia_status_dias");
-  const frec = new Map((templates ?? []).map((t: { clave: string; frecuencia_status_dias: number }) => [t.clave, t.frecuencia_status_dias]));
+  // El callback devolvía un array y no una tupla, así que el Map quedaba tipado como
+  // Map<{}, {}> y frec.get() no era un number. Sin efecto en runtime (esbuild borra los
+  // tipos), pero rompía el chequeo al usarlo en un Math.max.
+  const frec = new Map<string, number>(
+    ((templates ?? []) as { clave: string; frecuencia_status_dias: number }[])
+      .map((t) => [t.clave, t.frecuencia_status_dias] as [string, number])
+  );
 
   const { data } = await supabase
     .from("fm_event_accionables")
@@ -375,7 +452,9 @@ async function faseStatus() {
     const u = ultimo.get(a.id);
     if (!u) return false; // sin aviso inicial todavía → lo cubre faseAvisos
     const dias = (ahora - new Date(u).getTime()) / 86_400_000;
-    return dias >= (frec.get(a.template_clave ?? "") ?? 7);
+    // La frecuencia del template es el piso; los eventos lejanos se espacian (ver BLOQUES).
+    const cada = Math.max(frec.get(a.template_clave ?? "") ?? 7, bloqueDe(a.fm_upcoming_events.fecha).frecuenciaMin);
+    return dias >= cada;
   });
 
   const grupos = porDestinatario(pendientes);
@@ -386,13 +465,9 @@ async function faseStatus() {
 
   const resultado = new Map<string, { ok: boolean; detalle: string | null }>();
   for (const [slackId, items] of grupos) {
-    const mensajes = armarDigest(items, introDigest(items, condicionales, "status"), condicionales);
-    let okPersona = true;
-    let detalle: string | null = null;
-    for (const m of mensajes) {
-      const r = await slackPost(slackId, m.text, m.blocks);
-      if (!r.ok) { okPersona = false; detalle = r.detalle; }
-    }
+    const { ok: okPersona, detalle } = await enviarPorBloque(
+      items, condicionales, "status", (text, blocks) => slackPost(slackId, text, blocks)
+    );
     for (const a of items) {
       const prev = resultado.get(a.id);
       resultado.set(a.id, { ok: (prev?.ok ?? true) && okPersona, detalle: detalle ?? prev?.detalle ?? null });
@@ -445,17 +520,13 @@ async function fasePreview(target: string) {
 
   const enviados: { slack_id: string; responsable: string | null; accionables: number; mensajes: number; ok: boolean }[] = [];
   for (const [slackId, items] of grupos) {
-    const mensajes = armarDigest(items, introDigest(items, condicionales, "aviso"), condicionales);
+    const bloques = new Set(items.map((a) => bloqueDe(a.fm_upcoming_events.fecha).titulo));
     await slackPost(target, "Preview", [{
       type: "context",
-      elements: [{ type: "mrkdwn", text: `:arrow_down: *Esto le llegaría a <@${slackId}>* (${items[0].responsable ?? "?"}) — ${mensajes.length} mensaje${mensajes.length === 1 ? "" : "s"}` }],
+      elements: [{ type: "mrkdwn", text: `:arrow_down: *Esto le llegaría a <@${slackId}>* (${items[0].responsable ?? "?"}) — ${items.length} accionables en ${bloques.size} bloque${bloques.size === 1 ? "" : "s"}: ${[...bloques].join(" · ")}` }],
     }]);
-    let ok = true;
-    for (const m of mensajes) {
-      const r = await slackPost(target, m.text, m.blocks);
-      if (!r.ok) ok = false;
-    }
-    enviados.push({ slack_id: slackId, responsable: items[0].responsable, accionables: items.length, mensajes: mensajes.length, ok });
+    const r = await enviarPorBloque(items, condicionales, "aviso", (text, blocks) => slackPost(target, text, blocks));
+    enviados.push({ slack_id: slackId, responsable: items[0].responsable, accionables: items.length, mensajes: r.mensajes, ok: r.ok });
   }
   return { ok: true, fase: "preview", cutover: CUTOVER_EVENTOS, target, personas: grupos.size, accionables: pendientes.length, detalle: enviados };
 }
