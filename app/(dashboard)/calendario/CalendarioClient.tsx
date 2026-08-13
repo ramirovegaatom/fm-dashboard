@@ -376,6 +376,10 @@ export function CalendarioClient({
         </div>
       )}
 
+      {/* Pauta y piezas por evento (1:1 Camilo 2026-08-10): la ÚNICA variable por evento.
+          Va antes de Cumplimiento porque es el insumo que hace que ese número sea real. */}
+      <PautaYPiezas accionables={accionables} eventos={eventos} hoyIso={hoyIso} />
+
       {/* Cumplimiento por persona (pedido Camilo 2026-08-05): cómo viene cada responsable
           con sus accionables EXIGIBLES (el aviso ya llegó) de eventos vigentes. */}
       <CumplimientoPorPersona accionables={accionables} eventos={eventos} hoyIso={hoyIso} />
@@ -390,6 +394,164 @@ export function CalendarioClient({
             setFechaPrefill(null);
           }}
         />
+      )}
+    </div>
+  );
+}
+
+// Pauta y piezas por evento — marcado masivo (2026-08-13).
+// Contexto: Camilo definió en el 1:1 del 2026-08-10 que la única variable por evento es si
+// lleva pauta sí/no y piezas gráficas sí/no; todo lo demás de la plantilla es fijo. Esos dos
+// checks ya existían dentro del modal de cada evento, pero marcarlos exigía abrir 16 modales
+// uno por uno y por eso seguían los 46 en NULL (0 marcados al 13-08). Acá se resuelven todos
+// desde una sola pantalla, que es lo que se le puede pasar a José y a Mario.
+//
+// Qué cambia según el valor: "No" saca el accionable del promedio del evento, del
+// Cumplimiento por persona y de los avisos del bot (Hans/Nata dejan de recibirlo). Mientras
+// esté SIN MARCAR el bot igual lo manda, con la opción "🚫 No aplica" en el desplegable —
+// o sea que no marcar no rompe el arranque, pero infla los pendientes de Hans y Nata.
+function PautaYPiezas({
+  accionables,
+  eventos,
+  hoyIso,
+}: {
+  accionables: EventAccionable[];
+  eventos: UpcomingEvent[];
+  hoyIso: string;
+}) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [local, setLocal] = useState<Record<string, boolean | null>>({});
+
+  function marcar(id: string, aplica: boolean) {
+    setLocal((prev) => ({ ...prev, [id]: aplica }));
+    startTransition(async () => {
+      try {
+        await updateAccionable(id, { aplica });
+        router.refresh();
+      } catch {
+        setLocal((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+      }
+    });
+  }
+
+  const filas = useMemo(() => {
+    const porEvento = new Map<string, { pauta?: EventAccionable; contenido?: EventAccionable }>();
+    for (const a of accionables) {
+      if (a.template_clave !== "pauta" && a.template_clave !== "contenido") continue;
+      const slot = porEvento.get(a.event_id) ?? {};
+      slot[a.template_clave as "pauta" | "contenido"] = a;
+      porEvento.set(a.event_id, slot);
+    }
+    return eventos
+      .filter((e) => e.estado !== "Cancelado" && e.fecha >= hoyIso)
+      .sort((a, b) => a.fecha.localeCompare(b.fecha))
+      .map((e) => ({ evento: e, ...(porEvento.get(e.id) ?? {}) }))
+      .filter((f) => f.pauta || f.contenido);
+  }, [accionables, eventos, hoyIso]);
+
+  const valor = (a?: EventAccionable) =>
+    a ? (a.id in local ? local[a.id] : a.aplica) : undefined;
+
+  const sinMarcar = filas.reduce(
+    (n, f) => n + (valor(f.pauta) === null ? 1 : 0) + (valor(f.contenido) === null ? 1 : 0),
+    0
+  );
+
+  if (filas.length === 0) return null;
+
+  return (
+    <>
+      <div className="section-title" style={{ marginTop: 32, display: "flex", alignItems: "center", gap: 10 }}>
+        <span>Pauta y piezas por evento</span>
+        {sinMarcar > 0 && (
+          <span
+            style={{
+              padding: "2px 8px",
+              borderRadius: 999,
+              fontSize: 11,
+              fontWeight: 700,
+              background: "var(--bg-status-warning)",
+              color: "var(--fg-status-warning)",
+            }}
+          >
+            {sinMarcar} sin definir
+          </span>
+        )}
+      </div>
+      <div className="card" style={{ padding: 0, overflow: "hidden", opacity: isPending ? 0.7 : 1 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, tableLayout: "fixed" }}>
+          <thead>
+            <tr style={{ borderBottom: "1px solid var(--border-tertiary)", textAlign: "left" }}>
+              <th style={{ ...thStyle, width: "46%" }}>Evento</th>
+              <th style={{ ...thStyle, width: "14%" }}>Fecha</th>
+              <th style={{ ...thStyle, width: "20%" }}>¿Lleva pauta?</th>
+              <th style={{ ...thStyle, width: "20%" }}>¿Lleva piezas gráficas?</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filas.map((f) => (
+              <tr key={f.evento.id} style={{ borderBottom: "1px solid var(--border-tertiary)" }}>
+                <td style={{ ...tdStyle, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {f.evento.nombre}
+                </td>
+                <td style={{ ...tdStyle, color: "var(--fg-quaternary)", whiteSpace: "nowrap" }}>{fmtFecha(f.evento.fecha)}</td>
+                <td style={tdStyle}>
+                  <SiNo accionable={f.pauta} valor={valor(f.pauta)} onMarcar={marcar} />
+                </td>
+                <td style={tdStyle}>
+                  <SiNo accionable={f.contenido} valor={valor(f.contenido)} onMarcar={marcar} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="text-muted" style={{ fontSize: 11, padding: "10px 14px" }}>
+          Es la única variable por evento: todo lo demás de la plantilla es fijo. &quot;No&quot; saca ese accionable del avance del
+          evento, del cumplimiento de Hans/Nata y de los avisos del bot. Mientras quede sin definir, el bot igual lo va a pedir
+          (con la opción &quot;🚫 No aplica&quot; en el desplegable de Slack).
+        </div>
+      </div>
+    </>
+  );
+}
+
+// Par de botones Sí/No con el valor vigente resaltado. Un click = una decisión; para
+// corregirse se clickea el otro. No se puede volver a "sin definir" a propósito.
+function SiNo({
+  accionable,
+  valor,
+  onMarcar,
+}: {
+  accionable?: EventAccionable;
+  valor: boolean | null | undefined;
+  onMarcar: (id: string, aplica: boolean) => void;
+}) {
+  if (!accionable) return <span className="text-muted" style={{ fontSize: 11 }}>—</span>;
+  const activo = (v: boolean): React.CSSProperties =>
+    valor === v
+      ? {
+          ...checkBtn,
+          background: v ? "var(--bg-status-success)" : "var(--bg-secondary)",
+          color: v ? "var(--fg-status-success)" : "var(--fg-secondary)",
+          borderColor: v ? "var(--fg-status-success)" : "var(--border-secondary)",
+        }
+      : { ...checkBtn, opacity: valor === null || valor === undefined ? 1 : 0.45 };
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <button onClick={() => onMarcar(accionable.id, true)} style={activo(true)} title="Sí, este evento lo lleva">
+        ✓ Sí
+      </button>
+      <button onClick={() => onMarcar(accionable.id, false)} style={activo(false)} title="No, este evento no lo lleva">
+        ✗ No
+      </button>
+      {(valor === null || valor === undefined) && (
+        <span style={{ fontSize: 10, fontWeight: 700, color: "var(--fg-status-warning)", whiteSpace: "nowrap" }}>sin definir</span>
       )}
     </div>
   );
