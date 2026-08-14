@@ -696,6 +696,9 @@ function EventForm({
     meta_mrr: evento?.meta_mrr ?? null,
     costo_estimado: evento?.costo_estimado ?? null,
     asana_project_gid: evento?.asana_project_gid ?? "",
+    link_registro: evento?.link_registro ?? "",
+    partner: evento?.partner ?? "",
+    evento_grande: evento?.evento_grande ?? false,
   });
 
   function setNum(key: keyof UpcomingEventInput, value: string) {
@@ -804,6 +807,29 @@ function EventForm({
           Notas
           <textarea value={form.notas ?? ""} onChange={(e) => set("notas", e.target.value)} rows={2} style={{ ...inputStyle, resize: "vertical" }} />
         </label>
+        <label style={labelStyle}>
+          Link de registro (Luma)
+          <input value={form.link_registro ?? ""} onChange={(e) => set("link_registro", e.target.value)} placeholder="https://lu.ma/…" style={inputStyle} />
+        </label>
+        <label style={labelStyle}>
+          Partner (si tiene)
+          <input value={form.partner ?? ""} onChange={(e) => set("partner", e.target.value)} placeholder="Ej: Meta, Opres" style={inputStyle} />
+        </label>
+        <label style={{ ...labelStyle, gridColumn: "1 / -1", flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+          <input
+            type="checkbox"
+            checked={form.evento_grande ?? false}
+            onChange={(e) => set("evento_grande", e.target.checked)}
+            style={{ marginTop: 2, width: 15, height: 15, accentColor: "var(--fg-primary)" }}
+          />
+          <span>
+            Evento grande (tipo Spark / Fenabrave)
+            <span style={{ display: "block", fontSize: 11, fontWeight: 500, color: "var(--fg-quaternary)", marginTop: 2 }}>
+              Corre una semana los avisos de base de datos e invitaciones: Steph necesita 3 semanas en vez de 2, y Martín
+              tiene que tener la base lista para entonces. Al marcarlo se recalculan solos.
+            </span>
+          </span>
+        </label>
         <label style={{ ...labelStyle, gridColumn: "1 / -1" }}>
           Nomenclatura Attio (opcional — linkea el evento al tracking cuando exista)
           <input value={form.campana_evento ?? ""} onChange={(e) => set("campana_evento", e.target.value)} placeholder="Ej: Evento_AISummitBogota_15/09/26" style={inputStyle} />
@@ -867,7 +893,7 @@ function EventForm({
         </label>
       </div>
 
-      {evento && (evento.ppt_link || evento.plan_fm_link || evento.plan_ventas_link || evento.asana_project_gid) && (
+      {evento && (evento.ppt_link || evento.plan_fm_link || evento.plan_ventas_link || evento.asana_project_gid || evento.link_registro) && (
         <div style={{ display: "flex", gap: 10, marginTop: 12, flexWrap: "wrap" }}>
           {evento.ppt_link && <a href={evento.ppt_link} target="_blank" rel="noopener noreferrer" style={linkChip}>📊 PPT Atom ↗</a>}
           {evento.plan_fm_link && <a href={evento.plan_fm_link} target="_blank" rel="noopener noreferrer" style={linkChip}>📋 Plan FM ↗</a>}
@@ -875,6 +901,11 @@ function EventForm({
           {evento.asana_project_gid && (
             <a href={`https://app.asana.com/0/${evento.asana_project_gid}`} target="_blank" rel="noopener noreferrer" style={linkChip}>
               ✅ Proyecto Asana ↗
+            </a>
+          )}
+          {evento.link_registro && (
+            <a href={evento.link_registro} target="_blank" rel="noopener noreferrer" style={linkChip}>
+              🎟️ Registro ↗
             </a>
           )}
         </div>

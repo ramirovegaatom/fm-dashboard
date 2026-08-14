@@ -313,6 +313,13 @@ export type UpcomingEvent = {
   // Proyecto de Asana del evento (uno por evento, portfolio 1216774054127024). Se pega la
   // URL en /calendario y la server action guarda el GID normalizado. 2026-08-12.
   asana_project_gid: string | null;
+  // Pedidos de Steph (2026-08-13) para poder arrancar a invitar. El link de registro es lo
+  // primero que nombró; viaja en el DM de invitaciones y de ventas.
+  link_registro: string | null;
+  partner: string | null;
+  // Evento tipo Spark/Fenabrave: corre 7 días los avisos de base_datos e invitaciones.
+  // Steph necesita 3 semanas en vez de 2, y Martín tiene que tener la base para entonces.
+  evento_grande: boolean;
   created_at: string;
   updated_at: string;
   updated_by: string | null;

@@ -28,6 +28,9 @@ export type UpcomingEventInput = {
   meta_mrr?: number | null;
   costo_estimado?: number | null;
   asana_project_gid?: string | null; // se pega la URL del proyecto; se guarda el GID
+  link_registro?: string | null;
+  partner?: string | null;
+  evento_grande?: boolean;
 };
 
 // El campo de Asana se completa pegando el link del proyecto (así lo acordó Mario), pero lo
@@ -85,6 +88,12 @@ export async function saveUpcomingEvent(input: UpcomingEventInput) {
     meta_mrr: input.meta_mrr ?? null,
     costo_estimado: input.costo_estimado ?? null,
     asana_project_gid: asanaGid,
+    link_registro: input.link_registro?.trim() || null,
+    partner: input.partner?.trim() || null,
+    // Cambiar fecha o evento_grande dispara el recálculo de fecha_aviso en la base
+    // (trigger trg_fm_upcoming_events_reprogramar). Antes del 2026-08-13 no existía: editar
+    // la fecha de un evento dejaba los avisos apuntando a la fecha vieja.
+    evento_grande: input.evento_grande ?? false,
     updated_at: new Date().toISOString(),
   };
 

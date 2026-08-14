@@ -115,8 +115,14 @@ type Accionable = {
   fm_upcoming_events: {
     nombre: string; fecha: string; industria: string | null; territorio: string | null;
     pais: string | null; ciudad: string | null; estado: string;
+    link_registro: string | null; partner: string | null;
   };
 };
+
+// Claves de accionables que no se pueden arrancar sin el link de registro. Steph lo puso
+// primero en su lista del 2026-08-13 (*"base / empresa / BDR / link de luma / ciudad…"*) y
+// ventas invita con el mismo link. Si falta, el DM lo dice en vez de pedir algo imposible.
+const NECESITAN_REGISTRO = new Set(["invitaciones", "inv_ventas"]);
 
 const hoy = () => new Date().toISOString().slice(0, 10);
 
@@ -223,6 +229,17 @@ function armarDigest(items: Accionable[], intro: string, condicionales: Set<stri
         }],
       },
     ];
+
+    // Datos del evento que hacen falta para ejecutar, no solo para saber que existe.
+    const datos: string[] = [];
+    if (e.link_registro) datos.push(`:tickets: <${e.link_registro}|Link de registro>`);
+    if (e.partner) datos.push(`:handshake: Partner: *${e.partner}*`);
+    if (!e.link_registro && arr.some((a) => NECESITAN_REGISTRO.has(a.template_clave ?? ""))) {
+      datos.push(":warning: _Todavía no hay link de registro cargado en el calendario._");
+    }
+    if (datos.length) {
+      grupo.push({ type: "context", elements: [{ type: "mrkdwn", text: datos.join("  ·  ") }] });
+    }
     for (const a of arr) {
       grupo.push({
         type: "section",
@@ -308,7 +325,7 @@ async function faseTest(userId: string) {
 async function pendientesDeAviso(): Promise<Accionable[]> {
   const { data } = await supabase
     .from("fm_event_accionables")
-    .select("*, fm_upcoming_events!inner(nombre, fecha, industria, territorio, pais, ciudad, estado)")
+    .select("*, fm_upcoming_events!inner(nombre, fecha, industria, territorio, pais, ciudad, estado, link_registro, partner)")
     .lte("fecha_aviso", hoy())
     // BUG encontrado en el preview del 2026-08-07: .neq("aplica", false) traduce a
     // `aplica <> false`, que da NULL para los condicionales sin marcar → quedaban FUERA.
@@ -440,7 +457,7 @@ async function faseStatus() {
 
   const { data } = await supabase
     .from("fm_event_accionables")
-    .select("*, fm_upcoming_events!inner(nombre, fecha, industria, territorio, pais, ciudad, estado)")
+    .select("*, fm_upcoming_events!inner(nombre, fecha, industria, territorio, pais, ciudad, estado, link_registro, partner)")
     .lte("fecha_aviso", hoy())
     // BUG encontrado en el preview del 2026-08-07: .neq("aplica", false) traduce a
     // `aplica <> false`, que da NULL para los condicionales sin marcar → quedaban FUERA.
