@@ -511,6 +511,36 @@ async function syncTextoDeals() {
   return { total, upserted };
 }
 
+// v52 (2026-08-18, idea Ramiro): tercera red de descubrimiento — deals por ORIGEN
+// (origen_del_negocio_general = evento/webinar MKT). El origen dice que el deal ES de un
+// evento pero no de CUÁL, así que no sirve para atribuir: sirve para que un deal donde
+// cargaron el origen pero se olvidaron del tag Y del texto igual entre a la base. Las
+// vistas exigen campana_evento <> '' (verificado 2026-08-18), así que un deal sin slug
+// entra a fm_attio_deals pero NO cuenta en ningún número hasta que alguien lo atribuya.
+// `sin_atribuir` en la respuesta es la cola de data quality: deals que dicen ser de
+// evento y nadie sabe de cuál — el insumo para reclamar en el origen, no para adivinar.
+const ORIGENES_EVENTO = ["Evento Presencial MKT", "Webinars MKT"];
+async function syncOrigenDeals() {
+  let offset = 0, total = 0, upserted = 0, sinAtribuir = 0;
+  const filter = { "$or": ORIGENES_EVENTO.map((o) => ({ origen_del_negocio_general: { "$eq": o } })) };
+  while (true) {
+    const res = await attioPost("/objects/deals/records/query", { limit: 500, offset, filter });
+    const records = (res.data ?? []) as Record<string, unknown>[];
+    if (!records.length) break;
+    total += records.length;
+    const rows = records.map((d) => dealRowFromValues(d.id as Record<string, unknown>, d.values as Record<string, unknown[]>));
+    sinAtribuir += rows.filter((r) => !r.campana_evento).length;
+    for (let i = 0; i < rows.length; i += 100) {
+      const { error } = await supabase.from("fm_attio_deals").upsert(rows.slice(i, i + 100), { onConflict: "attio_deal_id" });
+      if (error) console.error(`Upsert origen i=${i}:`, error);
+    }
+    upserted += rows.length;
+    if (records.length < 500) break;
+    offset += 500;
+  }
+  return { total, upserted, sin_atribuir: sinAtribuir };
+}
+
 // Jose 2026-07-08: trae EMPRESAS por el tag Campaña/Evento del objeto Company (no solo las
 // que estan en la list events_companies). Alimenta fm_tagged_companies -> fm_qm_by_event.
 // QM FM se ancla en este tag (source of truth de ventas), igual que Jose filtra en Attio.
@@ -695,6 +725,7 @@ Deno.serve(async (req) => {
     if (phase === "3b" || phase === "refresh") result.refresh = await refreshDeals(offset, Number(url.searchParams.get("limit") ?? 200));
     if (phase === "tagged" || phase === "all") result.tagged = await syncTaggedDeals();
     if (phase === "texto" || phase === "tagged" || phase === "all") result.texto = await syncTextoDeals();
+    if (phase === "origen" || phase === "tagged" || phase === "all") result.origen = await syncOrigenDeals();
     if (phase === "tc" || phase === "tagged_companies" || phase === "all") result.tagged_companies = await syncTaggedCompanies();
     if (phase === "tp" || phase === "third_party" || phase === "all") result.third_party_people = await syncThirdPartyPeople();
     if (phase === "4" || phase === "partners" || phase === "all") result.partners = await syncPartners(offset, limit);
