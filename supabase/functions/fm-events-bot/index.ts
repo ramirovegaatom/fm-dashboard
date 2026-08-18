@@ -3,8 +3,13 @@
 //                  cuando llega la fecha_aviso de su accionable.
 // ?phase=status  → pide update de avance (select 0-100%) a los accionables en curso, cada
 //                  frecuencia_status_dias. La respuesta la procesa fm-slack-interact.
-// ?phase=preview&user=U… → PRUEBA: arma los mismos digests que mandaría avisos, pero los
-//                  manda TODOS a ese usuario y NO registra nada en fm_slack_notifications.
+// ?phase=preview&user=U…[&persona=U…] → PRUEBA: arma los mismos digests que mandaría
+//                  avisos, pero los manda TODOS a ese usuario y NO registra nada en
+//                  fm_slack_notifications. Con &persona=U… manda solo la tanda de esa
+//                  persona, para probar el circuito de respuesta con un mensaje suelto.
+// ?phase=asana[&dry=1][&event=<uuid>] → matchea las tareas del proyecto de Asana del
+//                  evento contra nuestros accionables y guarda el asana_task_gid. Solo LEE
+//                  de Asana. Con &dry=1 muestra el mapeo sin escribir nada.
 // ?phase=diag    → verifica el token y lista los miembros del workspace (mapear IDs).
 // ?phase=test&user=U… → mensaje suelto de prueba.
 //
@@ -25,6 +30,26 @@
 // en 21 días" pedían lo mismo con el mismo tono. Ahora cada horizonte sale como un DM aparte
 // (esta semana / la que viene / en dos / más adelante) y los eventos lejanos además se
 // preguntan más espaciado.
+//
+// v5 (2026-08-13, Ramiro): ETIQUETA DE COMPARTIDOS (ver compartidoCon). Al sumar a Bruno en
+// base_datos, casi todos los accionables de Martín pasaron a tener dos destinatarios con un
+// único progreso compartido. Cada accionable multi-destinatario ahora dice con quién se
+// comparte, para que no lo hagan dos veces — o ninguno.
+//
+// v6 (2026-08-13, Ramiro): DATOS DEL EVENTO EN EL DM. Respuesta de Steph: lo primero que
+// necesita para arrancar a invitar es el link de registro (Luma) y el partner. No existían
+// como campos, así que el bot no los podía mandar. Ahora viajan en el bloque del evento, y
+// si el link falta el DM lo dice en vez de pedirle a alguien que invite sin dónde registrar.
+//
+// v7 (2026-08-14, Ramiro): ?persona= en el preview. La URL de interactividad de la app de
+// Slack no estaba configurada (se cayó al desactivarle el modo asistente), así que ningún
+// desplegable registraba nada. Para probarlo sin recibir las 9 tandas de golpe, el preview
+// acepta filtrar por una sola persona.
+//
+// v8 (2026-08-18, Ramiro): ASANA FASE A — matching read-only (ver faseAsana). Guarda el
+// gid de la tarea de Asana en cada accionable, matcheando por SECCIÓN y no por nombre de
+// tarea (los nombres traen el evento adentro y ya tienen un typo de plantilla). No escribe
+// nada en Asana. La Fase B (comentar avance y cerrar tareas) espera el OK de Mario.
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const supabase = createClient(
@@ -529,11 +554,17 @@ async function faseStatus() {
 // responsable, tal cual saldrían. No registra nada en fm_slack_notifications, así que el
 // arranque real queda intacto. Los desplegables SÍ son funcionales (sirve de prueba
 // end-to-end): tocarlos actualiza el progreso real de ese accionable.
-async function fasePreview(target: string) {
+async function fasePreview(target: string, soloPersona?: string) {
   if (!SLACK_TOKEN) return { ok: false, nota: "SLACK_BOT_TOKEN no configurado" };
   const pendientes = await pendientesDeAviso();
   const grupos = porDestinatario(pendientes);
   const condicionales = await clavesCondicionales();
+
+  // ?persona=U… deja solo la tanda de esa persona. Sirve para probar el circuito de
+  // respuesta (click en el desplegable) sin recibir los ~30 mensajes de todas las tandas.
+  if (soloPersona) {
+    for (const k of [...grupos.keys()]) if (k !== soloPersona) grupos.delete(k);
+  }
 
   const resumen = [...grupos.entries()]
     .map(([id, items]) => `• <@${id}> — ${items.length} accionable${items.length === 1 ? "" : "s"}`)
@@ -563,6 +594,225 @@ async function fasePreview(target: string) {
   return { ok: true, fase: "preview", cutover: CUTOVER_EVENTOS, target, personas: grupos.size, accionables: pendientes.length, detalle: enviados };
 }
 
+// ─── Asana, Fase A: matching de tareas ──────────────────────────────────────────────
+// Lee las tareas del proyecto de Asana de cada evento y guarda el gid de la tarea en el
+// accionable que le corresponde. NO escribe nada en Asana: lo único que se toca es la
+// columna asana_task_gid de nuestra base. Fase B (comentar avance y cerrar la tarea)
+// espera el OK de Mario, porque cerrarle una tarea a alguien sin avisar rompe la
+// confianza en Asana.
+//
+// Se matchea por SECCIÓN, no por nombre de tarea. Los nombres llevan el nombre del evento
+// adentro y ya traen un typo de plantilla ("de acuerda al BRIEF"): si alguien lo corrige,
+// un match por string se rompe en silencio. Las 4 secciones, en cambio, son el esqueleto
+// de la plantilla y son las 4 áreas que anunció Mario.
+const ASANA_PAT = Deno.env.get("ASANA_PAT") ?? "";
+
+// Sección normalizada (ver normalizarSeccion) → clave de accionable. Se compara por
+// prefijo, así que "ATOM STUDIO DESIGN" entra por "ATOM STUDIO".
+const SECCION_A_CLAVE: [string, string][] = [
+  ["GROWTH", "base_datos"],
+  ["PAUTA", "pauta"],
+  ["ATOM STUDIO", "contenido"],
+  ["FIELD MARKETING", "invitaciones"],
+];
+
+// FIELD MARKETING tiene DOS tareas: el brief de Mario (due el día del evento, no mapea a
+// ningún accionable nuestro) y la de José, que es la que se parece a `invitaciones`.
+// El desempate va por nombre porque es lo único que las distingue dentro de la sección.
+const FM_ES_BRIEF = ["BRIEF", "COSTOS", "PPT"];
+const FM_ES_INVITACIONES = ["VENUE", "INVITACIONES", "LANDING", "LUMA", "REGISTROS", "DEMO"];
+
+// Accionables sin contraparte en Asana, a propósito: la plantilla nueva es toda pre-evento
+// y estos tres son internos nuestros. Se listan para que "no matcheó" no se lea como bug.
+const SIN_CONTRAPARTE_ASANA = ["inv_ventas", "handoff_cande", "post_listas"];
+
+// Marcas de acento, como rango de codepoints y no como caracteres literales: escritos
+// literalmente son combining chars invisibles en el editor y cualquier herramienta que
+// toque el archivo los puede comer sin que se note.
+const ACENTOS = new RegExp("[\\u0300-\\u036f]", "g");
+
+// Mayúsculas, sin acentos y sin la puntuación con la que vienen las secciones ("PAUTA -",
+// "GROWTH -"). Deja solo letras, números y espacios simples.
+function normalizarSeccion(s: string): string {
+  return s
+    .normalize("NFD").replace(ACENTOS, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9 ]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+type TareaAsana = {
+  gid: string;
+  name: string;
+  notes: string;
+  completed: boolean;
+  due_on: string | null;
+  assignee: { gid: string; name: string } | null;
+  memberships: { project: { gid: string }; section: { gid: string; name: string } }[];
+};
+
+async function asanaTareasDelProyecto(projectGid: string): Promise<TareaAsana[]> {
+  const campos = "name,notes,completed,due_on,assignee.name,memberships.section.name,memberships.project.gid";
+  const tareas: TareaAsana[] = [];
+  let offset = "";
+  do {
+    const url = `https://app.asana.com/api/1.0/projects/${projectGid}/tasks?opt_fields=${campos}&limit=100${offset ? `&offset=${offset}` : ""}`;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${ASANA_PAT}` } });
+    const json = await res.json();
+    if (!res.ok) {
+      // 403/404 acá casi siempre es falta de acceso, no un bug: el bot lee con el PAT de
+      // Ramiro, así que solo ve los proyectos que Ramiro ve.
+      throw new Error(`Asana ${res.status} en proyecto ${projectGid}: ${JSON.stringify(json.errors ?? json)}`);
+    }
+    tareas.push(...((json.data ?? []) as TareaAsana[]));
+    offset = json.next_page?.offset ?? "";
+  } while (offset);
+  return tareas;
+}
+
+// La sección de una tarea DENTRO de este proyecto (una tarea puede estar en varios).
+function seccionDe(t: TareaAsana, projectGid: string): string {
+  const m = t.memberships.find((x) => x.project?.gid === projectGid) ?? t.memberships[0];
+  return m?.section?.name ?? "";
+}
+
+// Elige, entre las tareas de una sección, la que corresponde a la clave. Devuelve null y el
+// motivo cuando hay ambigüedad: preferimos NO guardar un gid antes que guardar el
+// equivocado. Ya nos pasó dos veces con los Slack IDs que un match silencioso salga mal y
+// no haya forma de verlo desde el preview.
+function elegirTarea(clave: string, candidatas: TareaAsana[]): { tarea: TareaAsana | null; motivo: string } {
+  if (candidatas.length === 0) return { tarea: null, motivo: "sin tareas en la sección" };
+  if (clave !== "invitaciones") {
+    if (candidatas.length === 1) return { tarea: candidatas[0], motivo: "única en la sección" };
+    return { tarea: null, motivo: `${candidatas.length} tareas en la sección, no hay regla de desempate` };
+  }
+  // invitaciones: descartar el brief de Mario y quedarse con la de José.
+  const puntaje = (t: TareaAsana) => {
+    const n = normalizarSeccion(t.name);
+    if (FM_ES_BRIEF.every((k) => n.includes(k))) return -1;
+    return FM_ES_INVITACIONES.filter((k) => n.includes(k)).length;
+  };
+  const rankeadas = candidatas.map((t) => ({ t, p: puntaje(t) })).sort((a, b) => b.p - a.p);
+  if (rankeadas[0].p <= 0) return { tarea: null, motivo: "ninguna tarea de FIELD MARKETING parece la de invitaciones" };
+  if (rankeadas[1] && rankeadas[1].p === rankeadas[0].p) {
+    return { tarea: null, motivo: "empate entre dos tareas de FIELD MARKETING" };
+  }
+  return { tarea: rankeadas[0].t, motivo: `desempate por nombre (${rankeadas[0].p} señales de invitaciones)` };
+}
+
+// El Word del evento viaja en el campo notes de las tareas de Atom Studio, Pauta y Growth
+// (no en comentarios, como en la plantilla vieja). Se reporta para el paso siguiente:
+// meter el link del brief en el DM de Hans, Nata y Martín.
+function linkDeBrief(tareas: TareaAsana[]): string | null {
+  for (const t of tareas) {
+    const m = (t.notes ?? "").match(/https:\/\/docs\.google\.com\/\S+/);
+    if (m) return m[0].replace(/[)>,.]+$/, "");
+  }
+  return null;
+}
+
+// ?phase=asana[&dry=1][&event=<uuid>] → matchea y guarda los gid.
+// Con &dry=1 no escribe nada: sirve para revisar el mapeo antes de aplicarlo.
+async function faseAsana(dry: boolean, soloEvento?: string) {
+  if (!ASANA_PAT) return { ok: false, nota: "ASANA_PAT no configurado" };
+
+  let q = supabase
+    .from("fm_upcoming_events")
+    .select("id, nombre, fecha, asana_project_gid")
+    .not("asana_project_gid", "is", null);
+  if (soloEvento) q = q.eq("id", soloEvento);
+  const { data: eventos } = await q;
+
+  const resultado: Record<string, unknown>[] = [];
+  let guardados = 0;
+
+  for (const e of (eventos ?? []) as { id: string; nombre: string; fecha: string; asana_project_gid: string }[]) {
+    let tareas: TareaAsana[];
+    try {
+      tareas = await asanaTareasDelProyecto(e.asana_project_gid);
+    } catch (err) {
+      resultado.push({ evento: e.nombre, project_gid: e.asana_project_gid, error: String(err) });
+      continue;
+    }
+
+    const { data: accionables } = await supabase
+      .from("fm_event_accionables")
+      .select("id, template_clave, responsable, asana_task_gid")
+      .eq("event_id", e.id);
+
+    // Sección normalizada → tareas de esa sección.
+    const porSeccion = new Map<string, TareaAsana[]>();
+    for (const t of tareas) {
+      const norm = normalizarSeccion(seccionDe(t, e.asana_project_gid));
+      const arr = porSeccion.get(norm) ?? [];
+      arr.push(t);
+      porSeccion.set(norm, arr);
+    }
+
+    const matches: Record<string, unknown>[] = [];
+    const gidsUsados = new Set<string>();
+
+    for (const [seccionEsperada, clave] of SECCION_A_CLAVE) {
+      const candidatas = [...porSeccion.entries()]
+        .filter(([norm]) => norm.startsWith(seccionEsperada))
+        .flatMap(([, ts]) => ts);
+      const { tarea, motivo } = elegirTarea(clave, candidatas);
+      const accionable = ((accionables ?? []) as { id: string; template_clave: string | null; responsable: string | null; asana_task_gid: string | null }[])
+        .find((a) => a.template_clave === clave);
+
+      if (!accionable) {
+        matches.push({ clave, seccion: seccionEsperada, estado: "el evento no tiene ese accionable" });
+        continue;
+      }
+      if (!tarea) {
+        matches.push({ clave, seccion: seccionEsperada, estado: "sin match", motivo });
+        continue;
+      }
+      gidsUsados.add(tarea.gid);
+      const yaEstaba = accionable.asana_task_gid === tarea.gid;
+      let estado = dry ? "matcheado (dry-run, no se guardó)" : yaEstaba ? "ya estaba guardado" : "guardado";
+      if (!dry && !yaEstaba) {
+        const { error } = await supabase
+          .from("fm_event_accionables")
+          .update({ asana_task_gid: tarea.gid })
+          .eq("id", accionable.id);
+        if (error) estado = `error al guardar: ${error.message}`;
+        else guardados++;
+      }
+      matches.push({
+        clave,
+        seccion: seccionEsperada,
+        estado,
+        motivo,
+        tarea: tarea.name.trim(),
+        task_gid: tarea.gid,
+        assignee_asana: tarea.assignee?.name ?? null,
+        responsable_nuestro: accionable.responsable,
+        completed_en_asana: tarea.completed,
+        ya_tenia_gid: accionable.asana_task_gid,
+      });
+    }
+
+    resultado.push({
+      evento: e.nombre,
+      fecha: e.fecha,
+      project_gid: e.asana_project_gid,
+      tareas_en_asana: tareas.length,
+      matches,
+      sin_contraparte_por_diseno: SIN_CONTRAPARTE_ASANA,
+      // Tareas de Asana que no quedaron mapeadas: normalmente el brief de Mario y las
+      // secciones que la plantilla trae vacías. Si acá aparece algo inesperado, cambió
+      // la plantilla.
+      tareas_sin_mapear: tareas.filter((t) => !gidsUsados.has(t.gid))
+        .map((t) => ({ seccion: seccionDe(t, e.asana_project_gid), tarea: t.name.trim(), assignee: t.assignee?.name ?? null })),
+      link_brief: linkDeBrief(tareas),
+    });
+  }
+
+  return { ok: true, fase: "asana", dry, eventos_con_proyecto: (eventos ?? []).length, gids_guardados: guardados, detalle: resultado };
+}
+
 Deno.serve(async (req) => {
   const url = new URL(req.url);
   const phase = url.searchParams.get("phase") ?? "avisos";
@@ -571,7 +821,8 @@ Deno.serve(async (req) => {
     let out: unknown;
     if (phase === "diag") out = await faseDiag();
     else if (phase === "test") out = user ? await faseTest(user) : { ok: false, error: "falta ?user=U…" };
-    else if (phase === "preview") out = user ? await fasePreview(user) : { ok: false, error: "falta ?user=U…" };
+    else if (phase === "preview") out = user ? await fasePreview(user, url.searchParams.get("persona") || undefined) : { ok: false, error: "falta ?user=U…" };
+    else if (phase === "asana") out = await faseAsana(url.searchParams.get("dry") === "1", url.searchParams.get("event") || undefined);
     else if (phase === "status") out = await faseStatus();
     else out = await faseAvisos();
     return new Response(JSON.stringify({ success: true, ...(out as Record<string, unknown>) }), {
