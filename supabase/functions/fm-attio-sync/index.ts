@@ -230,7 +230,12 @@ function dealRowFromValues(idObj: Record<string, unknown>, vals: Record<string, 
     stage: extractVal(vals, "stage"),
     value_amount: extractCurrency(vals, "value"),
     value_currency: "USD",
-    campana_evento: extractMulti(vals, "campana_evento").join(", "),
+    // BUG 2026-08-18 (5 QMs de Evento_Aliados_07/08/26 invisibles): una automatización crea
+    // deals con el evento en campana_evento_texto (texto libre) y el tag multiselect VACÍO.
+    // Todas las vistas atribuyen por el tag, así que esos deals no existían para el dashboard.
+    // El texto entra como fallback solo cuando el tag falta — si ambos están, gana el tag.
+    campana_evento: extractMulti(vals, "campana_evento").join(", ") ||
+      (extractVal(vals, "campana_evento_texto")?.trim() ?? ""),
     origen_negocio: extractVal(vals, "origen_del_negocio_general"),
     close_date: extractDate(vals, "close_date"),
     fecha_qm_agendada: extractDate(vals, "fecha_qm_agendada"),
@@ -479,6 +484,33 @@ async function syncTaggedDeals() {
   return { total_options: optionSlugs.length, upserted, ok_slugs: okSlugs, bad_slugs: badSlugs };
 }
 
+// v50 (2026-08-18, Ramiro): deals con el evento SOLO en campana_evento_texto. Una
+// automatización los crea así desde ~08-13 (texto libre cargado, tag multiselect vacío) y
+// como ninguna vista ni sync miraba ese campo, eran QMs invisibles — así se perdieron 4 de
+// los 5 de Evento_Aliados_07/08/26. Una sola pasada paginada por todos los que tienen
+// texto (no una query por slug: duplicar el loop de tagged pasó los 150s del gateway);
+// dealRowFromValues ya usa el texto como fallback del tag al armar la fila.
+// Attio no soporta $not_empty en atributos de texto → se filtra por $contains "_", que
+// todos los slugs de campaña tienen (Evento_*, Webinar_*, FEWAUT_*).
+async function syncTextoDeals() {
+  let offset = 0, total = 0, upserted = 0;
+  while (true) {
+    const res = await attioPost("/objects/deals/records/query", { limit: 500, offset, filter: { campana_evento_texto: { "$contains": "_" } } });
+    const records = (res.data ?? []) as Record<string, unknown>[];
+    if (!records.length) break;
+    total += records.length;
+    const rows = records.map((d) => dealRowFromValues(d.id as Record<string, unknown>, d.values as Record<string, unknown[]>));
+    for (let i = 0; i < rows.length; i += 100) {
+      const { error } = await supabase.from("fm_attio_deals").upsert(rows.slice(i, i + 100), { onConflict: "attio_deal_id" });
+      if (error) console.error(`Upsert texto i=${i}:`, error);
+    }
+    upserted += rows.length;
+    if (records.length < 500) break;
+    offset += 500;
+  }
+  return { total, upserted };
+}
+
 // Jose 2026-07-08: trae EMPRESAS por el tag Campaña/Evento del objeto Company (no solo las
 // que estan en la list events_companies). Alimenta fm_tagged_companies -> fm_qm_by_event.
 // QM FM se ancla en este tag (source of truth de ventas), igual que Jose filtra en Attio.
@@ -662,6 +694,7 @@ Deno.serve(async (req) => {
     if (phase === "3" || phase === "all") result.deals = await syncDeals(since);
     if (phase === "3b" || phase === "refresh") result.refresh = await refreshDeals(offset, Number(url.searchParams.get("limit") ?? 200));
     if (phase === "tagged" || phase === "all") result.tagged = await syncTaggedDeals();
+    if (phase === "texto" || phase === "tagged" || phase === "all") result.texto = await syncTextoDeals();
     if (phase === "tc" || phase === "tagged_companies" || phase === "all") result.tagged_companies = await syncTaggedCompanies();
     if (phase === "tp" || phase === "third_party" || phase === "all") result.third_party_people = await syncThirdPartyPeople();
     if (phase === "4" || phase === "partners" || phase === "all") result.partners = await syncPartners(offset, limit);
