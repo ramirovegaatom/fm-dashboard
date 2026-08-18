@@ -92,7 +92,7 @@ function isoAddDays(iso: string, dias: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-// Avance por evento (pedido Camilo 2026-08-18): qué se movió en una ventana de tiempo,
+// Avance por evento (pedido Cande vía Ramiro, 2026-08-18): qué se movió en una ventana de tiempo,
 // evento por evento, con delta contra la ventana anterior de igual longitud. Responde
 // "¿qué pasó del lunes al viernes?" sin tener que recorrer campaña por campaña — el resto
 // de la pestaña agrega UNA campaña (o todas sumadas), nunca el desglose comparado.
@@ -322,7 +322,7 @@ export function SemanalClient({
 
   // ── Avance por evento ──
   // Ventana: el rango elegido en el filtro; sin rango, la última semana completa
-  // (lunes→domingo pasados) — la pregunta típica de Camilo un lunes a la mañana.
+  // (lunes→domingo pasados) — la pregunta típica de Cande un lunes a la mañana.
   const ventanaAvance = useMemo(() => {
     if (fromStr) {
       const to = toStr && toStr <= hoy ? toStr : hoy;
