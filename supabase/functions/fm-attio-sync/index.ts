@@ -724,8 +724,11 @@ Deno.serve(async (req) => {
     if (phase === "3" || phase === "all") result.deals = await syncDeals(since);
     if (phase === "3b" || phase === "refresh") result.refresh = await refreshDeals(offset, Number(url.searchParams.get("limit") ?? 200));
     if (phase === "tagged" || phase === "all") result.tagged = await syncTaggedDeals();
-    if (phase === "texto" || phase === "tagged" || phase === "all") result.texto = await syncTextoDeals();
-    if (phase === "origen" || phase === "tagged" || phase === "all") result.origen = await syncOrigenDeals();
+    // texto y origen NO corren dentro de tagged: el botón Sync del dashboard llama
+    // phase=tagged y sumarle ~40s lo empuja al timeout del gateway (pasó el 2026-08-18).
+    // Las tres las dispara el cron horario fm-sync-deals (fm_cron_sync_deals) por separado.
+    if (phase === "texto" || phase === "all") result.texto = await syncTextoDeals();
+    if (phase === "origen" || phase === "all") result.origen = await syncOrigenDeals();
     if (phase === "tc" || phase === "tagged_companies" || phase === "all") result.tagged_companies = await syncTaggedCompanies();
     if (phase === "tp" || phase === "third_party" || phase === "all") result.third_party_people = await syncThirdPartyPeople();
     if (phase === "4" || phase === "partners" || phase === "all") result.partners = await syncPartners(offset, limit);

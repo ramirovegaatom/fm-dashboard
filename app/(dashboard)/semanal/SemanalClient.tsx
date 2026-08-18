@@ -321,22 +321,35 @@ export function SemanalClient({
   );
 
   // ── Avance por evento ──
-  // Ventana: el rango elegido en el filtro; sin rango, la última semana completa
-  // (lunes→domingo pasados) — la pregunta típica de Cande un lunes a la mañana.
+  // El seguimiento de Cande es DURANTE la semana (2026-08-18): un jueves necesita
+  // lunes→hoy sin esperar a que la semana cierre. Default: esta semana en curso,
+  // comparada contra LOS MISMOS DÍAS de la semana pasada (lunes→jueves vs
+  // lunes→jueves — comparar 4 días contra 7 siempre da "peor" y no dice nada).
+  // El chip "Semana pasada" da la vista de cierre; el filtro de fechas de arriba
+  // pisa a ambos.
+  const [modoVentana, setModoVentana] = useState<"esta" | "pasada">("esta");
   const ventanaAvance = useMemo(() => {
     if (fromStr) {
       const to = toStr && toStr <= hoy ? toStr : hoy;
       return { from: fromStr, to, custom: true };
     }
+    if (modoVentana === "esta") return { from: semanaActual, to: hoy, custom: false };
     return { from: isoAddDays(semanaActual, -7), to: isoAddDays(semanaActual, -1), custom: false };
-  }, [fromStr, toStr, hoy, semanaActual]);
+  }, [fromStr, toStr, hoy, semanaActual, modoVentana]);
 
   const avanceEventos = useMemo(() => {
-    const { from, to } = ventanaAvance;
-    // Ventana anterior de igual longitud, pegada a la actual (para el delta).
-    const dur = Math.round((new Date(to + "T00:00:00Z").getTime() - new Date(from + "T00:00:00Z").getTime()) / 86_400_000) + 1;
-    const prevTo = isoAddDays(from, -1);
-    const prevFrom = isoAddDays(from, -dur);
+    const { from, to, custom } = ventanaAvance;
+    // Ventana de comparación: para esta/semana pasada, los mismos días corridos 7 atrás
+    // (semana vs semana). Para un rango custom, el período anterior de igual longitud.
+    let prevFrom: string, prevTo: string;
+    if (custom) {
+      const dur = Math.round((new Date(to + "T00:00:00Z").getTime() - new Date(from + "T00:00:00Z").getTime()) / 86_400_000) + 1;
+      prevTo = isoAddDays(from, -1);
+      prevFrom = isoAddDays(from, -dur);
+    } else {
+      prevFrom = isoAddDays(from, -7);
+      prevTo = isoAddDays(to, -7);
+    }
     const base = campana === "todas" ? dias : dias.filter((r) => r.campana_evento === campana);
     const cur = agregaAvance(base, from, to);
     const prev = agregaAvance(base, prevFrom, prevTo);
@@ -544,6 +557,27 @@ export function SemanalClient({
             setPaginaBdr(0);
           }}
         />
+        {/* Atajo pedido Cande (2026-08-18): su seguimiento es DURANTE la semana — un jueves
+            quiere lunes→hoy en TODA la pestaña (hitos y BDRs incluidos), sin armar el rango. */}
+        <button
+          onClick={() => {
+            setDateRange({ from: new Date(semanaActual + "T00:00:00"), to: new Date() });
+            setPagina(0);
+            setPaginaBdr(0);
+          }}
+          style={{
+            padding: "5px 10px",
+            fontSize: 11,
+            fontWeight: 600,
+            borderRadius: 8,
+            border: "1px solid var(--border-tertiary)",
+            background: "var(--bg-primary)",
+            color: "var(--fg-secondary)",
+            cursor: "pointer",
+          }}
+        >
+          Esta semana
+        </button>
         {eventoFecha && (
           <>
             <span className="badge" style={{ background: "var(--bg-status-brand)", color: "var(--fg-status-brand)", fontSize: 11 }}>
@@ -614,10 +648,32 @@ export function SemanalClient({
       {/* Avance por evento: qué se movió en la ventana, evento por evento, vs la anterior */}
       <div className="section-title">Avance por evento</div>
       <div className="card" style={{ marginBottom: 32 }}>
+        {!ventanaAvance.custom && (
+          <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+            {([["esta", "Esta semana (lunes → hoy)"], ["pasada", "Semana pasada"]] as const).map(([k, label]) => (
+              <button
+                key={k}
+                onClick={() => setModoVentana(k)}
+                style={{
+                  padding: "5px 10px",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  borderRadius: 8,
+                  border: "1px solid var(--border-tertiary)",
+                  background: modoVentana === k ? "var(--fg-primary)" : "var(--bg-primary)",
+                  color: modoVentana === k ? "var(--bg-primary)" : "var(--fg-secondary)",
+                  cursor: "pointer",
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="text-muted" style={{ fontSize: 12, marginBottom: 12 }}>
           Qué se movió <strong>del {fmtFecha(ventanaAvance.from)} al {fmtFecha(ventanaAvance.to)}</strong>
-          {ventanaAvance.custom ? " (rango elegido arriba)" : " (última semana completa — elegí otro rango con el filtro de fechas)"}, evento
-          por evento. La flechita compara contra el período anterior de igual duración: ▲ mejor, ▼ peor.
+          {ventanaAvance.custom ? " (rango elegido arriba)" : ""}, evento por evento. La flechita compara contra{" "}
+          {ventanaAvance.custom ? "el período anterior de igual duración" : "los mismos días de la semana anterior"}: ▲ mejor, ▼ peor.
           Click en un evento para enfocar toda la pestaña en él.
         </div>
         {avanceEventos.length === 0 ? (
