@@ -86,6 +86,70 @@ function mondayOf(fecha: string): string {
   return d.toISOString().slice(0, 10);
 }
 
+function isoAddDays(iso: string, dias: number): string {
+  const d = new Date(iso + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + dias);
+  return d.toISOString().slice(0, 10);
+}
+
+// Avance por evento (pedido Camilo 2026-08-18): qué se movió en una ventana de tiempo,
+// evento por evento, con delta contra la ventana anterior de igual longitud. Responde
+// "¿qué pasó del lunes al viernes?" sin tener que recorrer campaña por campaña — el resto
+// de la pestaña agrega UNA campaña (o todas sumadas), nunca el desglose comparado.
+type AvanceEvento = {
+  campana: string;
+  actividades: number;
+  procesadas: number;
+  qm_agendadas: number;
+  qm_completadas: number;
+  demos: number;
+  wons: number;
+  mrr_won: number;
+};
+
+const AVANCE_COLS: { key: Exclude<keyof AvanceEvento, "campana">; label: string; money?: boolean }[] = [
+  { key: "actividades", label: "Actividades" },
+  { key: "procesadas", label: "Procesadas" },
+  { key: "qm_agendadas", label: "QM agend." },
+  { key: "qm_completadas", label: "QM compl." },
+  { key: "demos", label: "Demos" },
+  { key: "wons", label: "Wons" },
+  { key: "mrr_won", label: "MRR", money: true },
+];
+
+function agregaAvance(dias: DailyProgress[], from: string, to: string): Map<string, AvanceEvento> {
+  const m = new Map<string, AvanceEvento>();
+  for (const r of dias) {
+    if (r.fecha < from || r.fecha > to) continue;
+    const acc = m.get(r.campana_evento) ?? {
+      campana: r.campana_evento, actividades: 0, procesadas: 0, qm_agendadas: 0,
+      qm_completadas: 0, demos: 0, wons: 0, mrr_won: 0,
+    };
+    acc.actividades += r.llamadas + r.whatsapps;
+    acc.procesadas += r.empresas_procesadas;
+    acc.qm_agendadas += r.qm_agendadas;
+    acc.qm_completadas += r.qm_completadas;
+    acc.demos += r.demos;
+    acc.wons += r.wons;
+    acc.mrr_won = Number(acc.mrr_won) + Number(r.mrr_won);
+    m.set(r.campana_evento, acc);
+  }
+  return m;
+}
+
+// Delta contra la ventana anterior: flecha + diferencia, al lado del valor de la ventana.
+function DeltaBadge({ cur, prev, money }: { cur: number; prev: number; money?: boolean }) {
+  const diff = cur - prev;
+  if (diff === 0) return null;
+  const up = diff > 0;
+  const fmt = money ? formatCurrency(Math.abs(diff)) : Math.abs(diff).toLocaleString("es-AR");
+  return (
+    <span style={{ fontSize: 10, fontWeight: 600, marginLeft: 5, color: up ? "var(--fg-status-success)" : "var(--fg-status-error)" }}>
+      {up ? "▲" : "▼"} {fmt}
+    </span>
+  );
+}
+
 // DateRange (Date locales del DateFilter) → strings YYYY-MM-DD comparables con la data.
 function toLocalISO(d?: Date): string | null {
   if (!d) return null;
@@ -255,6 +319,48 @@ export function SemanalClient({
       ),
     [diasFiltrados]
   );
+
+  // ── Avance por evento ──
+  // Ventana: el rango elegido en el filtro; sin rango, la última semana completa
+  // (lunes→domingo pasados) — la pregunta típica de Camilo un lunes a la mañana.
+  const ventanaAvance = useMemo(() => {
+    if (fromStr) {
+      const to = toStr && toStr <= hoy ? toStr : hoy;
+      return { from: fromStr, to, custom: true };
+    }
+    return { from: isoAddDays(semanaActual, -7), to: isoAddDays(semanaActual, -1), custom: false };
+  }, [fromStr, toStr, hoy, semanaActual]);
+
+  const avanceEventos = useMemo(() => {
+    const { from, to } = ventanaAvance;
+    // Ventana anterior de igual longitud, pegada a la actual (para el delta).
+    const dur = Math.round((new Date(to + "T00:00:00Z").getTime() - new Date(from + "T00:00:00Z").getTime()) / 86_400_000) + 1;
+    const prevTo = isoAddDays(from, -1);
+    const prevFrom = isoAddDays(from, -dur);
+    const base = campana === "todas" ? dias : dias.filter((r) => r.campana_evento === campana);
+    const cur = agregaAvance(base, from, to);
+    const prev = agregaAvance(base, prevFrom, prevTo);
+    // Entran los eventos con movimiento en cualquiera de las dos ventanas: un evento que
+    // venía moviéndose y esta semana quedó en cero es exactamente lo que hay que ver.
+    const campanasSet = new Set([...cur.keys(), ...prev.keys()]);
+    const vacio = (c: string): AvanceEvento => ({ campana: c, actividades: 0, procesadas: 0, qm_agendadas: 0, qm_completadas: 0, demos: 0, wons: 0, mrr_won: 0 });
+    return [...campanasSet]
+      .map((c) => ({ cur: cur.get(c) ?? vacio(c), prev: prev.get(c) ?? vacio(c) }))
+      .sort((a, b) =>
+        b.cur.qm_agendadas - a.cur.qm_agendadas ||
+        b.cur.procesadas - a.cur.procesadas ||
+        b.cur.actividades - a.cur.actividades
+      );
+  }, [dias, campana, ventanaAvance]);
+
+  const totalAvance = useMemo(() => {
+    const t = { actividades: 0, procesadas: 0, qm_agendadas: 0, qm_completadas: 0, demos: 0, wons: 0, mrr_won: 0 };
+    const p = { ...t };
+    for (const { cur, prev } of avanceEventos) {
+      for (const c of AVANCE_COLS) { t[c.key] += Number(cur[c.key]); p[c.key] += Number(prev[c.key]); }
+    }
+    return { cur: t, prev: p };
+  }, [avanceEventos]);
 
   // ── Empresas por hito (sección siempre visible) ──
   const hitosFiltrados = useMemo(
@@ -504,6 +610,68 @@ export function SemanalClient({
           ))}
         </div>
       )}
+
+      {/* Avance por evento: qué se movió en la ventana, evento por evento, vs la anterior */}
+      <div className="section-title">Avance por evento</div>
+      <div className="card" style={{ marginBottom: 32 }}>
+        <div className="text-muted" style={{ fontSize: 12, marginBottom: 12 }}>
+          Qué se movió <strong>del {fmtFecha(ventanaAvance.from)} al {fmtFecha(ventanaAvance.to)}</strong>
+          {ventanaAvance.custom ? " (rango elegido arriba)" : " (última semana completa — elegí otro rango con el filtro de fechas)"}, evento
+          por evento. La flechita compara contra el período anterior de igual duración: ▲ mejor, ▼ peor.
+          Click en un evento para enfocar toda la pestaña en él.
+        </div>
+        {avanceEventos.length === 0 ? (
+          <div className="text-muted" style={{ padding: 20, textAlign: "center", fontSize: 13 }}>
+            Sin movimientos en la ventana (ni en la anterior).
+          </div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid var(--border-tertiary)", textAlign: "left" }}>
+                  <th style={thStyle}>Evento</th>
+                  {AVANCE_COLS.map((c) => (
+                    <th key={c.key} style={thRight}>{c.label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {avanceEventos.map(({ cur, prev }) => (
+                  <tr
+                    key={cur.campana}
+                    onClick={() => setCampana(campana === cur.campana ? "todas" : cur.campana)}
+                    style={{ borderBottom: "1px solid var(--border-tertiary)", cursor: "pointer", background: campana === cur.campana ? "var(--bg-secondary)" : undefined }}
+                  >
+                    <td style={{ ...tdStyle, fontWeight: 600 }}>
+                      {cur.campana}
+                      {(() => {
+                        const f = fechasEvento.find((x) => x.campana_evento === cur.campana)?.evento_fecha?.slice(0, 10);
+                        return f ? <span className="text-muted" style={{ fontWeight: 400, fontSize: 11, marginLeft: 6 }}>({fmtFecha(f)})</span> : null;
+                      })()}
+                    </td>
+                    {AVANCE_COLS.map((c) => (
+                      <td key={c.key} style={{ ...tdStyle, textAlign: "right", whiteSpace: "nowrap" }}>
+                        {Number(cur[c.key]) === 0 && Number(prev[c.key]) === 0
+                          ? <span className="text-muted">—</span>
+                          : <>{c.money ? formatCurrency(Number(cur[c.key])) : Number(cur[c.key]).toLocaleString("es-AR")}<DeltaBadge cur={Number(cur[c.key])} prev={Number(prev[c.key])} money={c.money} /></>}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+                <tr style={{ borderTop: "2px solid var(--border-tertiary)", fontWeight: 700 }}>
+                  <td style={tdStyle}>Total</td>
+                  {AVANCE_COLS.map((c) => (
+                    <td key={c.key} style={{ ...tdStyle, textAlign: "right", whiteSpace: "nowrap" }}>
+                      {c.money ? formatCurrency(totalAvance.cur[c.key]) : totalAvance.cur[c.key].toLocaleString("es-AR")}
+                      <DeltaBadge cur={totalAvance.cur[c.key]} prev={totalAvance.prev[c.key]} money={c.money} />
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {/* Seguimiento por BDR: cuándo se asignó cada empresa y en qué estado está */}
       <div className="section-title">Asignaciones y procesamiento por BDR</div>
