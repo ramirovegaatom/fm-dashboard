@@ -601,6 +601,223 @@ async function syncOrigenDeals() {
   return { total, upserted, sin_atribuir: sinAtribuir };
 }
 
+// ───────────────────────── Whatan: WhatsApp real de los BDRs ─────────────────────────
+// v56 (2026-08-19, rediseño WhatsApp): los BDRs prospectan con Whatan (whatan.app, alias
+// WhatSync) — bandeja que conecta sus números de WhatsApp Business con Attio y crea notas
+// "WhatsApp Conversation - ..." a nivel People con el TRANSCRIPT por mensaje. Esos
+// WhatsApps no existían en activities (la cadena BigQuery solo trae campañas del producto).
+// Esta fase escanea las notas nuevas (watermark por created_at), parsea el transcript y
+// las inserta en activities con source='whatan' vía RPC whatan_insert_activities (dedup
+// por MENSAJE: Whatan puede crear notas duplicadas exactas — visto 2026-07-24).
+// ⚠️ Las filas NO cuentan en las vistas fm_* todavía (filtran sender='USER'): el switch de
+// definición se coordina con Cande/José antes de tocar las vistas.
+// Solo se ingestan mensajes de personas mapeables a contactos_growth (attio_record_id o
+// teléfono): las conversaciones personales de los agentes (Whatan sincroniza el WhatsApp
+// completo) quedan afuera por diseño.
+const WHATAN_APP_ACTOR_ID = "a343acdf-359b-44f6-a468-a10dafbc5309";
+const WHATAN_TITLE_PREFIX = "WhatsApp Conversation";
+const WHATAN_MESES: Record<string, number> = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+
+// Hash chico y estable para el dedup por mensaje (el texto puede ser largo/multilínea).
+function whatanHash(s: string): string {
+  let h1 = 5381, h2 = 52711;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    h1 = ((h1 * 33) ^ c) >>> 0;
+    h2 = ((h2 * 37) ^ c) >>> 0;
+  }
+  return h1.toString(36) + h2.toString(36);
+}
+
+// Timestamps del transcript, SIEMPRE UTC (verificado contra whatsapp_last_message_at y el
+// created_at de las notas). Tres formatos históricos: "Aug 19, 2026, 10:24 PM" (actual),
+// "Mar 31, 11:56 PM" y "Feb 19, 6:45 PM" (sin año → se toma del created_at de la nota; si
+// el resultado queda a futuro de la nota, era diciembre visto en enero → año anterior).
+function parseWhatanTs(raw: string, noteCreatedAt: Date): string | null {
+  const m = raw.trim().match(/^([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2}),\s*(?:(\d{4}),\s*)?(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!m) return null;
+  const mon = WHATAN_MESES[m[1].toLowerCase()];
+  if (mon === undefined) return null;
+  const day = Number(m[2]);
+  let year = m[3] ? Number(m[3]) : noteCreatedAt.getUTCFullYear();
+  let hour = Number(m[4]) % 12;
+  if (m[6].toUpperCase() === "PM") hour += 12;
+  let ts = Date.UTC(year, mon, day, hour, Number(m[5]));
+  if (!m[3] && ts > noteCreatedAt.getTime() + 2 * 86400000) {
+    year -= 1;
+    ts = Date.UTC(year, mon, day, hour, Number(m[5]));
+  }
+  return new Date(ts).toISOString();
+}
+
+type WhatanMsg = { ts: string; direction: "outbound" | "inbound"; text: string; fromName: string | null };
+
+// Header de mensaje en cualquiera de los 3 formatos:
+//   "[Aug 19, 2026, 10:24 PM] Outbound - You"        (actual: nombre tras "-", texto en líneas siguientes)
+//   "[Mar 31, 11:56 PM] 📤 Outbound: mensaje"        (texto en la misma línea tras ":")
+//   "**[Feb 19, 6:45 PM]** 📤 *Outbound*"            (markdown, texto en líneas siguientes)
+const WHATAN_HEADER_RE = /^\s*\*{0,2}\[([^\]]+)\]\*{0,2}\s*(?:📤|📩)?\s*\*?(Outbound|Inbound)\*?\s*(?:(-|:)\s*(.*))?\s*$/;
+
+function parseWhatanBody(body: string, noteCreatedAt: Date): WhatanMsg[] {
+  const msgs: WhatanMsg[] = [];
+  let cur: WhatanMsg | null = null;
+  for (const raw of body.split("\n")) {
+    const line = raw.replace(/\r$/, "");
+    if (/^\s*-{3,}\s*$/.test(line)) continue; // separadores --- / -----
+    const m = line.match(WHATAN_HEADER_RE);
+    if (m) {
+      if (cur) { cur.text = cur.text.trim(); msgs.push(cur); }
+      const ts = parseWhatanTs(m[1], noteCreatedAt);
+      if (!ts) { cur = null; continue; }
+      const direction = m[2].toLowerCase() as "outbound" | "inbound";
+      // ":" → el resto de la línea es la primera línea del mensaje; "-" → es el nombre del emisor.
+      cur = { ts, direction, text: m[3] === ":" ? (m[4] ?? "") : "", fromName: m[3] === "-" ? (m[4] ?? "").trim() || null : null };
+    } else if (cur) {
+      cur.text = cur.text ? cur.text + "\n" + line : line;
+    }
+  }
+  if (cur) { cur.text = cur.text.trim(); msgs.push(cur); }
+  return msgs;
+}
+
+// Resuelve personas de Attio → (contact_id, company_id) de growth, con cache persistente
+// en whatan_person_map. Prioridad: contactos_growth.attio_record_id → teléfono de la
+// persona (fetch a Attio) → sin match (se descarta la nota: filtro de ruido/privacidad).
+async function resolveWhatanPersons(personIds: string[]): Promise<Map<string, { contact_id: string | null; company_id: string | null }>> {
+  const out = new Map<string, { contact_id: string | null; company_id: string | null }>();
+  const unique = [...new Set(personIds)];
+  for (let i = 0; i < unique.length; i += 100) {
+    const { data } = await supabase.from("whatan_person_map").select("attio_person_id, contact_id, company_id").in("attio_person_id", unique.slice(i, i + 100));
+    for (const r of (data ?? []) as Record<string, string | null>[]) out.set(r.attio_person_id as string, { contact_id: r.contact_id, company_id: r.company_id });
+  }
+  let missing = unique.filter((p) => !out.has(p));
+  const nuevos: Record<string, unknown>[] = [];
+  for (let i = 0; i < missing.length; i += 100) {
+    const { data } = await supabase.from("contactos_growth").select("id, company_id, attio_record_id").in("attio_record_id", missing.slice(i, i + 100));
+    for (const c of (data ?? []) as Record<string, string | null>[]) {
+      const pid = c.attio_record_id as string;
+      if (out.has(pid)) continue;
+      out.set(pid, { contact_id: c.id, company_id: c.company_id });
+      nuevos.push({ attio_person_id: pid, contact_id: c.id, company_id: c.company_id, matched: "attio_id" });
+    }
+  }
+  missing = unique.filter((p) => !out.has(p));
+  for (let i = 0; i < missing.length; i += 8) {
+    const group = missing.slice(i, i + 8);
+    const fetched = await Promise.all(group.map(async (pid): Promise<[string, string | null]> => {
+      try {
+        const r = await fetch(`${ATTIO_BASE}/objects/people/records/${pid}`, { headers: attioHeaders });
+        if (!r.ok) return [pid, null];
+        const j = await r.json();
+        const vals = (j?.data?.values ?? {}) as Record<string, unknown[]>;
+        return [pid, extractPhone(vals) ?? extractVal(vals, "whatsapp_phone_number")];
+      } catch { return [pid, null]; }
+    }));
+    for (const [pid, phone] of fetched) {
+      let contact: string | null = null, company: string | null = null;
+      if (phone) {
+        const { data } = await supabase.from("contactos_growth").select("id, company_id").eq("phone_e164", phone).limit(5);
+        const rows = (data ?? []) as { id: string; company_id: string | null }[];
+        const pick = rows.find((c) => c.company_id) ?? rows[0];
+        if (pick) { contact = pick.id; company = pick.company_id; }
+      }
+      out.set(pid, { contact_id: contact, company_id: company });
+      nuevos.push({ attio_person_id: pid, contact_id: contact, company_id: company, phone, matched: contact ? "phone" : "none" });
+    }
+  }
+  for (let i = 0; i < nuevos.length; i += 100) {
+    const { error } = await supabase.from("whatan_person_map").upsert(nuevos.slice(i, i + 100), { onConflict: "attio_person_id" });
+    if (error) console.error("whatan_person_map upsert:", error);
+  }
+  return out;
+}
+
+async function syncWhatanNotes(startOffset = -1, maxPages = 20) {
+  // ⚠️ Attio lista las notas en orden ASCENDENTE de creación (verificado 2026-08-19:
+  // offset 0 devuelve las de febrero). El estado es un CURSOR de offset que avanza hacia
+  // el presente; cada corrida arranca 2 páginas ANTES del cursor guardado (overlap) por si
+  // un borrado de notas corrió posiciones — los inserts son idempotentes, re-leer es gratis.
+  const { data: stRows } = await supabase.from("whatan_sync_state").select("*").eq("id", 1);
+  const st = (stRows?.[0] ?? null) as { last_note_created_at: string | null; last_offset: number | null } | null;
+  let offset = startOffset >= 0 ? startOffset : Math.max(0, (st?.last_offset ?? 0) - 100);
+  const initialOffset = offset;
+  let pages = 0, scanned = 0, notasWhatan = 0, bodiesFetched = 0;
+  let newest: string | null = st?.last_note_created_at ?? null;
+  let reachedEnd = false;
+  type PendingRow = { contact_id: string | null; company_id: string | null; activity_type: string; source_id: string; activity_date: string; metadata: Record<string, unknown> };
+  const parsed: { personId: string; noteId: string; msgs: WhatanMsg[] }[] = [];
+
+  while (pages < maxPages && !reachedEnd) {
+    const r = await fetch(`${ATTIO_BASE}/notes?limit=50&offset=${offset}`, { headers: attioHeaders });
+    if (!r.ok) throw new Error(`Attio notes list: ${r.status} ${(await r.text()).substring(0, 200)}`);
+    const j = await r.json();
+    const notes = (j?.data ?? []) as Record<string, unknown>[];
+    pages++; scanned += notes.length;
+    if (!notes.length) { reachedEnd = true; break; }
+    // El cursor solo avanza por páginas COMPLETAS: una página parcial se re-lee entera la
+    // próxima corrida (las posiciones que faltan se llenan con notas nuevas).
+    if (notes.length === 50) offset += 50; else reachedEnd = true;
+    for (const n of notes) {
+      const created = String(n.created_at ?? "");
+      if (!newest || created > newest) newest = created;
+      const actor = (n.created_by_actor ?? n.created_by) as Record<string, unknown> | undefined;
+      if (actor?.type !== "app" || String(actor?.id ?? "") !== WHATAN_APP_ACTOR_ID) continue;
+      if (!String(n.title ?? "").startsWith(WHATAN_TITLE_PREFIX)) continue;
+      const personId = String(n.parent_record_id ?? "");
+      if (!personId) continue;
+      const noteId = String((n.id as Record<string, unknown>)?.note_id ?? n.id ?? "");
+      let body = (n.content_plaintext ?? n.content_markdown ?? null) as string | null;
+      if (body == null && noteId) {
+        try {
+          const nr = await fetch(`${ATTIO_BASE}/notes/${noteId}`, { headers: attioHeaders });
+          if (nr.ok) { const nj = await nr.json(); body = (nj?.data?.content_plaintext ?? nj?.data?.content_markdown ?? null) as string | null; bodiesFetched++; }
+        } catch { /* skip */ }
+      }
+      if (!body) continue;
+      notasWhatan++;
+      const msgs = parseWhatanBody(body, new Date(created));
+      if (msgs.length) parsed.push({ personId, noteId, msgs });
+    }
+  }
+
+  const resolved = await resolveWhatanPersons(parsed.map((p) => p.personId));
+  const rows: PendingRow[] = [];
+  let sinContacto = 0;
+  for (const p of parsed) {
+    const link = resolved.get(p.personId);
+    if (!link?.contact_id) { sinContacto++; continue; } // sin contacto no hay dedup ni circuito: se descarta
+    for (const m of p.msgs) {
+      rows.push({
+        contact_id: link.contact_id,
+        company_id: link.company_id,
+        activity_type: m.direction === "outbound" ? "whatsapp_sent" : "whatsapp_replied",
+        // dedup por mensaje (no por nota): persona + minuto + dirección + hash del texto
+        source_id: `${p.personId}|${m.ts}|${m.direction}|${whatanHash(m.text)}`,
+        activity_date: m.ts,
+        metadata: {
+          source: "whatan", sender: m.direction === "outbound" ? "AGENT" : "CLIENT",
+          direction: m.direction, text: m.text.substring(0, 2000),
+          reply_text: m.direction === "inbound" ? m.text.substring(0, 2000) : null,
+          note_id: p.noteId, attio_person_id: p.personId, from_name: m.fromName,
+        },
+      });
+    }
+  }
+  let inserted = 0;
+  for (let i = 0; i < rows.length; i += 200) {
+    const { data, error } = await supabase.rpc("whatan_insert_activities", { payload: rows.slice(i, i + 200) });
+    if (error) console.error(`whatan_insert_activities i=${i}:`, error);
+    else inserted += Number(data ?? 0);
+  }
+  // El cursor solo se persiste en corridas normales (sin offset explícito): una corrida
+  // manual de backfill con offset no debe pisar el estado del cron.
+  if (startOffset < 0) {
+    const { error } = await supabase.from("whatan_sync_state").update({ last_offset: offset, last_note_created_at: newest, updated_at: new Date().toISOString() }).eq("id", 1);
+    if (error) console.error("whatan_sync_state update:", error);
+  }
+  return { pages, scanned, from_offset: initialOffset, cursor: offset, notas_whatan: notasWhatan, mensajes: rows.length, inserted, sin_contacto: sinContacto, bodies_fetched: bodiesFetched, reached_end: reachedEnd, next_offset: reachedEnd ? null : offset };
+}
+
 // Jose 2026-07-08: trae EMPRESAS por el tag Campaña/Evento del objeto Company (no solo las
 // que estan en la list events_companies). Alimenta fm_tagged_companies -> fm_qm_by_event.
 // QM FM se ancla en este tag (source of truth de ventas), igual que Jose filtra en Attio.
@@ -815,6 +1032,10 @@ Deno.serve(async (req) => {
     // Las tres las dispara el cron horario fm-sync-deals (fm_cron_sync_deals) por separado.
     if (phase === "texto" || phase === "all") result.texto = await syncTextoDeals();
     if (phase === "origen" || phase === "all") result.origen = await syncOrigenDeals();
+    // v56: whatan NO corre en "all" a propósito — "all" lo dispara el botón Sync y el scan
+    // de notas le sumaría requests; tiene su propio cron (fm-whatan-sync). Sin ?offset
+    // explícito arranca del cursor guardado (whatan_sync_state.last_offset).
+    if (phase === "whatan") result.whatan = await syncWhatanNotes(url.searchParams.has("offset") ? offset : -1, Number(url.searchParams.get("pages") ?? 20));
     if (phase === "tc" || phase === "tagged_companies" || phase === "all") result.tagged_companies = await syncTaggedCompanies();
     if (phase === "tp" || phase === "third_party" || phase === "all") result.third_party_people = await syncThirdPartyPeople();
     if (phase === "4" || phase === "partners" || phase === "all") result.partners = await syncPartners(offset, limit);
