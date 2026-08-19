@@ -558,6 +558,12 @@ async function syncTaggedCompanies() {
 
   // v33: BDR asignado (actor-reference) + fecha (active_from). Nombres via workspace members.
   const members = await fetchWorkspaceMembers();
+  // v54 (2026-08-18): lista de exclusión del dashboard — AtomChat/Atom (registros propios)
+  // estaban taggeados como empresas de evento y sus actividades internas contaban como
+  // prospección. Los tags de Attio no se tocan; se saltean acá y todas las vistas quedan
+  // limpias porque leen fm_tagged_companies.
+  const { data: excl } = await supabase.from("fm_excluded_companies").select("attio_company_id");
+  const excluidas = new Set(((excl ?? []) as { attio_company_id: string }[]).map((r) => r.attio_company_id));
   const allRows: Record<string, unknown>[] = [];
   const seen = new Set<string>();
   for (const slug of optionSlugs) {
@@ -570,6 +576,7 @@ async function syncTaggedCompanies() {
         const vals = (c.values ?? {}) as Record<string, unknown[]>;
         const idObj = c.id as Record<string, unknown>;
         const cid = String(idObj?.record_id ?? idObj);
+        if (excluidas.has(cid)) continue;
         const key = `${cid}|${slug}`;
         if (seen.has(key)) continue;
         seen.add(key);
