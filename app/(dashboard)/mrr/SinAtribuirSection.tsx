@@ -61,8 +61,8 @@ export function SinAtribuirSection({ rows, options }: { rows: DealSinAtribuir[];
       <p className="text-muted" style={{ fontSize: 12, marginTop: -4, marginBottom: 16, maxWidth: 760 }}>
         Deals que dicen ser de evento (origen <strong>Evento Presencial MKT</strong> / <strong>Webinars MKT</strong>)
         o cuya empresa está taggeada a un evento, pero <strong>sin Campaña/Evento en el deal</strong> — por eso
-        no cuentan en ningún número del dashboard. Atribuir escribe el tag en Attio; descartar solo lo saca
-        de esta cola (Attio no se toca).
+        no cuentan en ningún número del dashboard. Los deals ya perdidos (Lost) quedan afuera de la cola.
+        Atribuir escribe el tag en Attio; descartar solo lo saca de esta cola (Attio no se toca).
       </p>
 
       {/* Stats */}

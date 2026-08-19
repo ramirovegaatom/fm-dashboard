@@ -593,7 +593,7 @@ export const METRIC_LINEAGE: Record<string, LineageEntry> = {
     ],
     table: "fm_deals_sin_atribuir",
     column: "campana_evento = '' AND (origen_negocio evento/webinar MKT OR empresa en fm_tagged_companies)",
-    filter: "excluye empresas internas (fm_excluded_companies) y descartados (fm_deal_atribucion_descartes)",
+    filter: "excluye deals Lost (stage/fecha_close_lost — José 2026-08-19: no vale atribuir lo ya perdido; eran 1.913 de 2.034), empresas internas (fm_excluded_companies) y descartados (fm_deal_atribucion_descartes)",
     update: "Sync Attio (cron horario de deals / botón)",
     note: "Pedido José 2026-08-19. Estos deals NO cuentan en ningún número del dashboard hasta atribuirse. Atribuir escribe el tag campana_evento en el deal de Attio (edge fn phase=atribuir); descartar solo lo saca de la cola (local, Attio intacto).",
   },
