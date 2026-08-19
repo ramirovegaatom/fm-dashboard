@@ -327,12 +327,16 @@ export function SemanalClient({
   // lunes→jueves — comparar 4 días contra 7 siempre da "peor" y no dice nada).
   // El chip "Semana pasada" da la vista de cierre; el filtro de fechas de arriba
   // pisa a ambos.
-  const [modoVentana, setModoVentana] = useState<"esta" | "pasada">("esta");
+  // "Hoy" (pedido Cande, mismo día): qué cambió puntualmente hoy. Compara contra el mismo
+  // día de la semana pasada (lunes vs lunes pasado) — contra ayer, un lunes siempre "gana"
+  // al domingo y no dice nada. Sale gratis del corrimiento de 7 días de abajo.
+  const [modoVentana, setModoVentana] = useState<"hoy" | "esta" | "pasada">("esta");
   const ventanaAvance = useMemo(() => {
     if (fromStr) {
       const to = toStr && toStr <= hoy ? toStr : hoy;
       return { from: fromStr, to, custom: true };
     }
+    if (modoVentana === "hoy") return { from: hoy, to: hoy, custom: false };
     if (modoVentana === "esta") return { from: semanaActual, to: hoy, custom: false };
     return { from: isoAddDays(semanaActual, -7), to: isoAddDays(semanaActual, -1), custom: false };
   }, [fromStr, toStr, hoy, semanaActual, modoVentana]);
@@ -650,7 +654,7 @@ export function SemanalClient({
       <div className="card" style={{ marginBottom: 32 }}>
         {!ventanaAvance.custom && (
           <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-            {([["esta", "Esta semana (lunes → hoy)"], ["pasada", "Semana pasada"]] as const).map(([k, label]) => (
+            {([["hoy", "Hoy"], ["esta", "Esta semana (lunes → hoy)"], ["pasada", "Semana pasada"]] as const).map(([k, label]) => (
               <button
                 key={k}
                 onClick={() => setModoVentana(k)}
@@ -671,9 +675,15 @@ export function SemanalClient({
           </div>
         )}
         <div className="text-muted" style={{ fontSize: 12, marginBottom: 12 }}>
-          Qué se movió <strong>del {fmtFecha(ventanaAvance.from)} al {fmtFecha(ventanaAvance.to)}</strong>
+          Qué se movió {ventanaAvance.from === ventanaAvance.to
+            ? <strong>hoy, {fmtFecha(ventanaAvance.from)}</strong>
+            : <strong>del {fmtFecha(ventanaAvance.from)} al {fmtFecha(ventanaAvance.to)}</strong>}
           {ventanaAvance.custom ? " (rango elegido arriba)" : ""}, evento por evento. La flechita compara contra{" "}
-          {ventanaAvance.custom ? "el período anterior de igual duración" : "los mismos días de la semana anterior"}: ▲ mejor, ▼ peor.
+          {ventanaAvance.custom
+            ? "el período anterior de igual duración"
+            : ventanaAvance.from === ventanaAvance.to
+              ? "el mismo día de la semana pasada"
+              : "los mismos días de la semana anterior"}: ▲ mejor, ▼ peor.
           Click en un evento para enfocar toda la pestaña en él.
         </div>
         {avanceEventos.length === 0 ? (
