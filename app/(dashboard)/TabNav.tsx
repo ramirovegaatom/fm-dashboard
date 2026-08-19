@@ -13,7 +13,9 @@ const TABS = [
   // uno — Estado actual = foto de HOY del funnel; Semana a semana = qué pasó cada semana.
   { href: "/seguimiento", label: "Estado actual" },
   { href: "/semanal", label: "Semana a semana" },
-  { href: "/mrr", label: "MRR cerrado" },
+  // 2026-08-19 (José): "MRR cerrado" → "Deals". Mismo contenido (Won por fecha de cierre)
+  // + cola de revisión de deals de evento sin atribuir.
+  { href: "/mrr", label: "Deals" },
 ];
 
 export function TabNav() {

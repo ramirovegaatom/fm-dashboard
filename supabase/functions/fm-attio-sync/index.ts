@@ -214,6 +214,55 @@ async function descartarCompanies(companyIds: string[]) {
   return { updated, errors };
 }
 
+// v55 (2026-08-19, José): atribuir un evento a un deal desde la cola de revisión del
+// dashboard (fm_deals_sin_atribuir — deals con origen evento/webinar o empresa taggeada
+// pero sin campana_evento). Escribe el tag multiselect en el DEAL de Attio y refleja
+// local. campana_evento es multiselect: la API acepta el array de títulos como strings,
+// pero según versión puede exigir [{ option: "..." }] — mismo patrón de doble intento
+// que patchOutboundStage, devolviendo el error crudo del último intento.
+async function atribuirDeal(dealId: string, slug: string): Promise<string | null> {
+  const cuerpos = [
+    { data: { values: { campana_evento: [slug] } } },
+    { data: { values: { campana_evento: [{ option: slug }] } } },
+  ];
+  let ultimoError = "";
+  for (const body of cuerpos) {
+    try {
+      const r = await fetch(`${ATTIO_BASE}/objects/deals/records/${dealId}`, {
+        method: "PATCH", headers: attioHeaders, body: JSON.stringify(body),
+      });
+      if (r.ok) return null;
+      const t = await r.text();
+      ultimoError = `HTTP ${r.status} ${t.substring(0, 200)}`;
+      console.error(`atribuir PATCH ${dealId} [${JSON.stringify(body.data.values).substring(0, 60)}]: ${ultimoError}`);
+      if (r.status !== 400 && r.status !== 422) break; // 401/403/404 no se arreglan cambiando el formato
+    } catch (e) {
+      ultimoError = String(e).substring(0, 200);
+      console.error(`atribuir PATCH ${dealId} threw: ${ultimoError}`);
+    }
+  }
+  return ultimoError;
+}
+
+async function atribuirDeals(dealIds: string[], slug: string) {
+  let updated = 0; const errors: string[] = [];
+  for (let i = 0; i < dealIds.length; i += 5) {
+    const group = dealIds.slice(i, i + 5);
+    const results = await Promise.all(group.map((did) => atribuirDeal(did, slug)));
+    for (let g = 0; g < group.length; g++) { if (results[g]) errors.push(`${group[g]}: ${results[g]}`); else updated++; }
+  }
+  // Reflejo local inmediato (el cron horario de deals re-sincroniza el valor real después).
+  const failed = new Set(errors.map((e) => e.split(":")[0]));
+  const okIds = dealIds.filter((did) => !failed.has(did));
+  if (okIds.length) {
+    const { error } = await supabase.from("fm_attio_deals")
+      .update({ campana_evento: slug, synced_at: new Date().toISOString() })
+      .in("attio_deal_id", okIds);
+    if (error) errors.push(`local: ${error.message}`);
+  }
+  return { updated, errors, slug };
+}
+
 const QM_STAGES = ["QM AGENDADA", "QM SHOW", "QM NO SHOW"];
 function computeQmType(status: string | null | undefined, outboundStage: string, hasOpenDeal: boolean): string | null {
   if (status === "QM" || QM_STAGES.includes(outboundStage)) {
@@ -454,6 +503,17 @@ async function syncTaggedDeals() {
     .filter((o) => o.is_archived !== true)
     .map((o) => o.title as string)
     .filter(Boolean);
+
+  // v55: persistir las options del DEAL para el selector de atribución del dashboard
+  // (fm_deals_sin_atribuir). Delete+insert para que las archivadas desaparezcan.
+  {
+    const now = new Date().toISOString();
+    const { error: delErr } = await supabase.from("fm_campana_options").delete().neq("slug", "");
+    if (delErr) console.error("fm_campana_options delete:", delErr);
+    const { error: insErr } = await supabase.from("fm_campana_options")
+      .upsert(optionSlugs.map((slug) => ({ slug, synced_at: now })), { onConflict: "slug" });
+    if (insErr) console.error("fm_campana_options upsert:", insErr);
+  }
 
   let upserted = 0;
   const okSlugs: string[] = [];
@@ -721,6 +781,25 @@ Deno.serve(async (req) => {
         return new Response(JSON.stringify({ success: false, error: "company_ids requeridos" }), { status: 400, headers: { "Content-Type": "application/json" } });
       }
       const result = await descartarCompanies(ids);
+      return new Response(JSON.stringify({ success: true, phase, ...result, synced_at: new Date().toISOString() }), { headers: { "Content-Type": "application/json" } });
+    }
+
+    // v55: atribuir campana_evento a deals desde la cola de revisión. Solo POST + key privilegiada.
+    if (phase === "atribuir") {
+      if (req.method !== "POST") {
+        return new Response(JSON.stringify({ success: false, error: "method not allowed" }), { status: 405, headers: { "Content-Type": "application/json" } });
+      }
+      const adminKey = req.headers.get("x-admin-key");
+      if (!(await isPrivilegedKey(adminKey))) {
+        return new Response(JSON.stringify({ success: false, error: "unauthorized" }), { status: 401, headers: { "Content-Type": "application/json" } });
+      }
+      const body = await req.json().catch(() => null) as { deal_ids?: unknown; slug?: unknown } | null;
+      const ids = Array.isArray(body?.deal_ids) ? (body!.deal_ids as unknown[]).filter((x): x is string => typeof x === "string").slice(0, 200) : [];
+      const slug = typeof body?.slug === "string" ? body.slug.trim() : "";
+      if (!ids.length || !slug) {
+        return new Response(JSON.stringify({ success: false, error: "deal_ids y slug requeridos" }), { status: 400, headers: { "Content-Type": "application/json" } });
+      }
+      const result = await atribuirDeals(ids, slug);
       return new Response(JSON.stringify({ success: true, phase, ...result, synced_at: new Date().toISOString() }), { headers: { "Content-Type": "application/json" } });
     }
 

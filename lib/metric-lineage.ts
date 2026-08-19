@@ -582,6 +582,21 @@ export const METRIC_LINEAGE: Record<string, LineageEntry> = {
     update: "Sync Attio (cron 30 min / botón)",
     note: "Misma definición que la pestaña MRR cerrado (por fecha de cierre), acotada a deals con campaña FM.",
   },
+  deals_sin_atribuir: {
+    label: "Deals de evento sin atribuir (cola de revisión)",
+    flow: [
+      { label: "Attio Deals", kind: "source", detail: "origen evento/webinar o empresa taggeada" },
+      { label: "fm-attio-sync", kind: "pipeline", detail: "fases tagged/texto/origen · cron horario" },
+      { label: "fm_attio_deals", kind: "store" },
+      { label: "fm_deals_sin_atribuir", kind: "store", detail: "view" },
+      { label: "Dashboard", kind: "ui" },
+    ],
+    table: "fm_deals_sin_atribuir",
+    column: "campana_evento = '' AND (origen_negocio evento/webinar MKT OR empresa en fm_tagged_companies)",
+    filter: "excluye empresas internas (fm_excluded_companies) y descartados (fm_deal_atribucion_descartes)",
+    update: "Sync Attio (cron horario de deals / botón)",
+    note: "Pedido José 2026-08-19. Estos deals NO cuentan en ningún número del dashboard hasta atribuirse. Atribuir escribe el tag campana_evento en el deal de Attio (edge fn phase=atribuir); descartar solo lo saca de la cola (local, Attio intacto).",
+  },
 };
 
 export function getLineage(key: string | undefined): LineageEntry | null {

@@ -206,6 +206,50 @@ export type WonByCloseDate = {
   pais: string | null;
 };
 
+// Cola de revisión de la pestaña Deals (fm_deals_sin_atribuir), pedido José 2026-08-19:
+// deals SIN campana_evento que (a) tienen origen Evento Presencial MKT / Webinars MKT, o
+// (b) su empresa está taggeada a algún evento (sugerencias = esos tags). Desde la UI se
+// atribuye (escribe el tag en el deal de Attio vía edge fn phase=atribuir) o se descarta
+// (solo local: fm_deal_atribucion_descartes — Attio no se toca).
+export type DealSinAtribuir = {
+  attio_deal_id: string;
+  deal_name: string | null;
+  attio_company_id: string | null;
+  company_name: string | null;
+  origen_negocio: string | null;
+  stage: string | null;
+  value_amount: number | null;
+  close_date: string | null;
+  created_at_attio: string | null;
+  fecha_qm_agendada: string | null;
+  sugerencias: string[] | null;
+  origen_evento: boolean;
+};
+
+export async function fetchDealsSinAtribuir(): Promise<DealSinAtribuir[]> {
+  const PAGE = 1000;
+  const out: DealSinAtribuir[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data } = await supabase
+      .from("fm_deals_sin_atribuir")
+      .select("*")
+      .order("created_at_attio", { ascending: false })
+      .order("attio_deal_id")
+      .range(from, from + PAGE - 1);
+    const rows = (data ?? []) as DealSinAtribuir[];
+    out.push(...rows);
+    if (rows.length < PAGE) break;
+  }
+  return out;
+}
+
+// Options reales del atributo campana_evento del DEAL en Attio (para el selector de
+// atribución). Las mantiene syncTaggedDeals (edge fn v55) en cada corrida.
+export async function fetchCampanaOptions(): Promise<string[]> {
+  const { data } = await supabase.from("fm_campana_options").select("slug").order("slug");
+  return ((data ?? []) as { slug: string }[]).map((r) => r.slug);
+}
+
 // Pestaña Semanal (fm_weekly_progress): progreso semana a semana por campaña. Retro-construido
 // de fuentes con fecha real: activities (llamadas/WA → procesamiento) y fm_attio_deals
 // (fecha_qm_agendada/fecha_de_demo/close_date → funnel de negocio). Semana = lunes (date_trunc UTC).
