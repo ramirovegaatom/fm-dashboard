@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { DailyProgress, WeeklyHito, CampanaFecha, BdrCompany } from "@/lib/supabase";
+import { DailyProgress, WeeklyHito, CampanaFecha, BdrCompany, FunnelMovement } from "@/lib/supabase";
 import { StatCard } from "@/components/StatCard";
 import { DateFilter, DateRange } from "@/components/DateFilter";
 import { formatCurrency } from "@/lib/format";
@@ -164,6 +164,21 @@ function fmtFecha(fecha: string) {
   return new Date(fecha + "T12:00:00Z").toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
 }
 
+// Movimientos entre etapas (pedido Cande 2026-08-18): etiquetas y colores por etapa del
+// funnel de fm_seguimiento_companies. Verde = avanza, rojo = cae, gris = neutro.
+const ETAPAS_META: Record<string, { label: string; color: string }> = {
+  sin_prospectar: { label: "Sin prospectar", color: "var(--fg-quaternary)" },
+  siendo_prospectada: { label: "Siendo prospectada", color: "var(--fg-status-info)" },
+  respuesta_positiva: { label: "Respuesta positiva", color: "var(--fg-status-brand)" },
+  procesada: { label: "Procesada", color: "var(--fg-status-success)" },
+  dropoff: { label: "DropOff", color: "var(--fg-status-error)" },
+  recycle: { label: "Recycle", color: "var(--fg-status-warning, var(--fg-status-error))" },
+};
+const etapaLabel = (e: string | null) => (e ? ETAPAS_META[e]?.label ?? e : "Nueva en seguimiento");
+const etapaColor = (e: string | null) => (e ? ETAPAS_META[e]?.color ?? "var(--fg-secondary)" : "var(--fg-quaternary)");
+// Primer día con registro: antes de esta fecha no hay historia (Attio pisa la etapa).
+const MOVIMIENTOS_DESDE = "2026-08-18";
+
 const ESTADOS_META: { key: BdrCompany["estado_actividad"]; label: string; color: string }[] = [
   { key: "sin_actividad", label: "Sin actividad", color: "var(--fg-status-error)" },
   { key: "en_proceso", label: "En proceso", color: "var(--fg-status-info)" },
@@ -175,11 +190,13 @@ export function SemanalClient({
   hitos,
   fechasEvento,
   bdrCompanies,
+  movimientos,
 }: {
   dias: DailyProgress[];
   hitos: WeeklyHito[];
   fechasEvento: CampanaFecha[];
   bdrCompanies: BdrCompany[];
+  movimientos: FunnelMovement[];
 }) {
   const [campana, setCampana] = useState<string>("todas");
   const [dateRange, setDateRange] = useState<DateRange>({});
@@ -378,6 +395,45 @@ export function SemanalClient({
     }
     return { cur: t, prev: p };
   }, [avanceEventos]);
+
+  // ── Movimientos entre etapas (misma ventana que Avance por evento) ──
+  const [paginaMov, setPaginaMov] = useState(0);
+  const [transicionSel, setTransicionSel] = useState<string | null>(null);
+  const movimientosVentana = useMemo(
+    () =>
+      movimientos.filter(
+        (m) =>
+          m.fecha >= ventanaAvance.from &&
+          m.fecha <= ventanaAvance.to &&
+          (campana === "todas" || m.campana_evento === campana)
+      ),
+    [movimientos, ventanaAvance, campana]
+  );
+
+  // Resumen por transición ("de → a"), ordenado por volumen.
+  const transiciones = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const mv of movimientosVentana) {
+      const k = `${mv.de_etapa ?? ""}→${mv.a_etapa}`;
+      m.set(k, (m.get(k) ?? 0) + 1);
+    }
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  }, [movimientosVentana]);
+
+  const movimientosVisibles = useMemo(
+    () =>
+      transicionSel
+        ? movimientosVentana.filter((m) => `${m.de_etapa ?? ""}→${m.a_etapa}` === transicionSel)
+        : movimientosVentana,
+    [movimientosVentana, transicionSel]
+  );
+
+  const totalPaginasMov = Math.max(1, Math.ceil(movimientosVisibles.length / FILAS_POR_PAGINA));
+  const paginaMovActual = Math.min(paginaMov, totalPaginasMov - 1);
+  const movimientosPagina = useMemo(
+    () => movimientosVisibles.slice(paginaMovActual * FILAS_POR_PAGINA, (paginaMovActual + 1) * FILAS_POR_PAGINA),
+    [movimientosVisibles, paginaMovActual]
+  );
 
   // ── Empresas por hito (sección siempre visible) ──
   const hitosFiltrados = useMemo(
@@ -736,6 +792,94 @@ export function SemanalClient({
               </tbody>
             </table>
           </div>
+        )}
+      </div>
+
+      {/* Movimientos entre etapas: qué empresa cambió de etapa del funnel, y cuándo */}
+      <div className="section-title">Movimientos entre etapas</div>
+      <div className="card" style={{ marginBottom: 32 }}>
+        <div className="text-muted" style={{ fontSize: 12, marginBottom: 12 }}>
+          Empresas que <strong>cambiaron de etapa del funnel</strong> en la misma ventana que el avance de
+          arriba: quién arrancó prospección, quién pasó a procesada, quién cayó a DropOff o Recycle.
+          Se registra cada 30 minutos comparando contra la última etapa conocida.
+          {ventanaAvance.from < MOVIMIENTOS_DESDE && (
+            <> ⚠️ <strong>El registro existe desde el {fmtFecha(MOVIMIENTOS_DESDE)}</strong> — antes de esa
+            fecha no hay historia (el CRM pisa la etapa sin guardarla).</>
+          )}
+        </div>
+
+        {movimientosVentana.length === 0 ? (
+          <div className="text-muted" style={{ padding: 20, textAlign: "center", fontSize: 13 }}>
+            Sin cambios de etapa en la ventana{ventanaAvance.to < MOVIMIENTOS_DESDE ? " (es anterior al inicio del registro)" : ""}.
+          </div>
+        ) : (
+          <>
+            {/* Resumen por transición: click filtra la lista */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+              {transiciones.map(([k, n]) => {
+                const [de, a] = k.split("→");
+                const activa = transicionSel === k;
+                return (
+                  <button
+                    key={k}
+                    onClick={() => { setTransicionSel(activa ? null : k); setPaginaMov(0); }}
+                    style={{
+                      padding: "5px 10px",
+                      fontSize: 11,
+                      fontWeight: 600,
+                      borderRadius: 8,
+                      border: activa ? "1px solid var(--fg-primary)" : "1px solid var(--border-tertiary)",
+                      background: activa ? "var(--fg-primary)" : "var(--bg-primary)",
+                      color: activa ? "var(--bg-primary)" : "var(--fg-secondary)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {etapaLabel(de || null)} → <span style={{ color: activa ? undefined : etapaColor(a) }}>{etapaLabel(a)}</span> · {n}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                <thead>
+                  <tr style={{ borderBottom: "1px solid var(--border-tertiary)", textAlign: "left" }}>
+                    <th style={thStyle}>Fecha</th>
+                    <th style={thStyle}>Empresa</th>
+                    <th style={thStyle}>Evento</th>
+                    <th style={thStyle}>BDR</th>
+                    <th style={thStyle}>Movimiento</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {movimientosPagina.map((m, i) => (
+                    <tr key={`${m.fecha}-${m.attio_company_id}-${m.a_etapa}-${i}`} style={{ borderBottom: "1px solid var(--border-tertiary)" }}>
+                      <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>{fmtFecha(m.fecha)}</td>
+                      <td style={{ ...tdStyle, fontWeight: 600 }}>
+                        <a href={attioCompanyUrl(m.attio_company_id) ?? undefined} target="_blank" rel="noreferrer" style={{ color: "inherit" }}>
+                          {m.company_name ?? m.attio_company_id}
+                        </a>
+                      </td>
+                      <td style={tdStyle}>{m.campana_evento}</td>
+                      <td style={tdStyle}>{m.assigned_bdr_name ?? <span className="text-muted">—</span>}</td>
+                      <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>
+                        <span style={{ color: etapaColor(m.de_etapa) }}>{etapaLabel(m.de_etapa)}</span>
+                        {" → "}
+                        <span style={{ color: etapaColor(m.a_etapa), fontWeight: 600 }}>{etapaLabel(m.a_etapa)}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {totalPaginasMov > 1 && (
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10, fontSize: 12 }}>
+                <button onClick={() => setPaginaMov(Math.max(0, paginaMovActual - 1))} disabled={paginaMovActual === 0} style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid var(--border-tertiary)", background: "var(--bg-primary)", color: "var(--fg-secondary)", cursor: "pointer" }}>←</button>
+                <span className="text-muted">{paginaMovActual + 1} / {totalPaginasMov} · {movimientosVisibles.length} movimientos</span>
+                <button onClick={() => setPaginaMov(Math.min(totalPaginasMov - 1, paginaMovActual + 1))} disabled={paginaMovActual >= totalPaginasMov - 1} style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid var(--border-tertiary)", background: "var(--bg-primary)", color: "var(--fg-secondary)", cursor: "pointer" }}>→</button>
+              </div>
+            )}
+          </>
         )}
       </div>
 

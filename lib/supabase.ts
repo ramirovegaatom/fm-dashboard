@@ -244,6 +244,37 @@ export type WeeklyHito = {
 };
 
 // Trae TODAS las filas de fm_weekly_hitos (~2k hoy; paginado por si crece).
+// Movimientos ENTRE etapas del funnel por empresa (pedido Cande 2026-08-18). Attio pisa
+// la etapa sin historia: fm_funnel_movements registra cada transición cuando el sync la ve
+// (cron fm-funnel-movements cada 30 min). de_etapa NULL = empresa nueva en el seguimiento.
+// El registro arranca el 2026-08-18 — hacia atrás no existe historia que mostrar.
+export type FunnelMovement = {
+  fecha: string;
+  campana_evento: string;
+  attio_company_id: string;
+  company_name: string | null;
+  assigned_bdr_name: string | null;
+  de_etapa: string | null;
+  a_etapa: string;
+};
+
+export async function fetchFunnelMovements(): Promise<FunnelMovement[]> {
+  const PAGE = 1000;
+  const out: FunnelMovement[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data } = await supabase
+      .from("fm_funnel_movements")
+      .select("fecha, campana_evento, attio_company_id, company_name, assigned_bdr_name, de_etapa, a_etapa")
+      .order("fecha", { ascending: false })
+      .order("campana_evento")
+      .range(from, from + PAGE - 1);
+    const rows = (data ?? []) as FunnelMovement[];
+    out.push(...rows);
+    if (rows.length < PAGE) break;
+  }
+  return out;
+}
+
 export async function fetchWeeklyHitos(): Promise<WeeklyHito[]> {
   const PAGE = 1000;
   const out: WeeklyHito[] = [];
