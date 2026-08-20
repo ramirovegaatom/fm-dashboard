@@ -529,16 +529,16 @@ export const METRIC_LINEAGE: Record<string, LineageEntry> = {
   semanal_actividades: {
     label: "Actividades semanales (llamadas / WhatsApps)",
     flow: [
-      { label: "JustCall / WA", kind: "source", detail: "vía BigQuery" },
+      { label: "JustCall / Whatan", kind: "source", detail: "llamadas webhook · WhatsApp notas de Attio" },
       { label: "activities", kind: "store", detail: "activity_date real" },
-      { label: "fm_weekly_progress", kind: "store", detail: "view · semana = lunes" },
+      { label: "fm_daily_progress", kind: "store", detail: "view · grano diario" },
       { label: "Dashboard", kind: "ui" },
     ],
     table: "activities",
-    column: "COUNT por semana de call_made/call_answered y whatsapp_sent",
-    filter: "solo contactos de empresas tagueadas con campaña FM (fm_tagged_companies)",
-    update: "activities se alimenta por crons del proyecto signals; la vista agrega on-the-fly",
-    note: "Histórico real: llamadas desde ene-2026, WhatsApps desde abr-2026. Una empresa en 2 campañas cuenta en ambas (misma unidad empresa×campaña del resto del dashboard).",
+    column: "COUNT por día de call_made/call_answered y whatsapp_sent",
+    filter: "solo empresas tagueadas con campaña FM. WhatsApp de prospección = mensajes de persona en el inbox de la plataforma (sender USER) O mensajes reales de BDRs vía Whatan (source whatan) — decisión Ramiro 2026-08-19. El bot y las plantillas de campaña NO cuentan.",
+    update: "llamadas por webhook; Whatan por cron cada 30 min (fm-whatan-sync)",
+    note: "Histórico real: llamadas desde ene-2026, WhatsApp de BDRs (Whatan) desde feb-2026. Una empresa en 2 campañas cuenta en ambas (misma unidad empresa×campaña del resto del dashboard). Cambio 2026-08-19: antes solo contaba sender USER (~7 WA/semana visibles); con Whatan la prospección real apareció (~600 WA esa misma semana).",
   },
   semanal_procesadas: {
     label: "Empresas procesadas por semana",
