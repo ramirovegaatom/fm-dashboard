@@ -601,6 +601,37 @@ async function syncOrigenDeals() {
   return { total, upserted, sin_atribuir: sinAtribuir };
 }
 
+// v58 (2026-08-20, José): la cola de revisión (fm_deals_sin_atribuir) mostraba deals que
+// en Attio ya estaban Lost — entraron a fm_attio_deals una vez (vía empresa taggeada, sin
+// tag/texto/origen evento) y NINGUNA fase los volvía a tocar (caso UNAD: synced_at 06-05,
+// Lost en Attio desde 28-05). Esta fase refresca desde Attio exactamente los deals que
+// están HOY en la cola (~120 y bajando): al actualizar stage/fecha_close_lost, los Lost
+// salen solos por el filtro de la vista. Corre en el cron horario de deals.
+async function refreshColaSinAtribuir() {
+  const { data: rows } = await supabase.from("fm_deals_sin_atribuir").select("attio_deal_id");
+  const ids = ((rows ?? []) as { attio_deal_id: string }[]).map((r) => r.attio_deal_id);
+  if (!ids.length) return { total: 0, updated: 0, errors: 0 };
+  let updated = 0, errors = 0;
+  const updates: Array<Record<string, unknown>> = [];
+  for (let i = 0; i < ids.length; i += 8) {
+    const group = ids.slice(i, i + 8);
+    const results = await Promise.all(group.map(async (dealId): Promise<Record<string, unknown> | null> => {
+      try {
+        const r = await fetch(`${ATTIO_BASE}/objects/deals/records/${dealId}`, { headers: attioHeaders });
+        if (!r.ok) return null;
+        const j = await r.json();
+        return dealRowFromValues(j?.data?.id as Record<string, unknown>, (j?.data?.values ?? {}) as Record<string, unknown[]>);
+      } catch { return null; }
+    }));
+    for (const row of results) { if (row) updates.push(row); else errors++; }
+  }
+  for (let i = 0; i < updates.length; i += 100) {
+    const { error } = await supabase.from("fm_attio_deals").upsert(updates.slice(i, i + 100), { onConflict: "attio_deal_id" });
+    if (error) { console.error(`Upsert refresh_cola i=${i}:`, error); errors++; } else { updated += updates.slice(i, i + 100).length; }
+  }
+  return { total: ids.length, updated, errors };
+}
+
 // ───────────────────────── Whatan: WhatsApp real de los BDRs ─────────────────────────
 // v56 (2026-08-19, rediseño WhatsApp): los BDRs prospectan con Whatan (whatan.app, alias
 // WhatSync) — bandeja que conecta sus números de WhatsApp Business con Attio y crea notas
@@ -1032,6 +1063,8 @@ Deno.serve(async (req) => {
     // Las tres las dispara el cron horario fm-sync-deals (fm_cron_sync_deals) por separado.
     if (phase === "texto" || phase === "all") result.texto = await syncTextoDeals();
     if (phase === "origen" || phase === "all") result.origen = await syncOrigenDeals();
+    // v58: refresca los deals de la cola de revisión (José 2026-08-20: mostraba Lost viejos).
+    if (phase === "refresh_cola") result.refresh_cola = await refreshColaSinAtribuir();
     // v56: whatan NO corre en "all" a propósito — "all" lo dispara el botón Sync y el scan
     // de notas le sumaría requests; tiene su propio cron (fm-whatan-sync). Sin ?offset
     // explícito arranca del cursor guardado (whatan_sync_state.last_offset).
