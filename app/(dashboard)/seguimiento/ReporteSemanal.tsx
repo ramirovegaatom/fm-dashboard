@@ -5,8 +5,12 @@ import { CohorteEntrega, WonByCloseDate } from "@/lib/supabase";
 import { MetricInfo } from "@/components/MetricInfo";
 import { attioCompanyUrl, attioDealUrl } from "@/lib/attio";
 import { formatCurrency } from "@/lib/format";
+import { SIN_BDR } from "./shared";
 
 // Reporte semanal de gestión (pedido José + Cande 2026-08-26, diseño a partir de su mock).
+// Vive ARRIBA de la pestaña "Estado actual" (Seguimiento) — pedido explícito; primero se
+// había puesto en Semanal. Respeta los filtros de campaña (multi) y BDR de la pestaña; el de
+// fechas (fecha del EVENTO) no aplica: el eje de este reporte es la semana de ENTREGA.
 // Eje = COHORTE DE ENTREGA: la semana de una empresa es la de su fecha_entrada_pre_qm (Attio:
 // última entrada al stage PRE-QM). Las métricas son el estado ACTUAL de cada cohorte según el
 // Outbound Stage — Attio no guarda historia de stage, así que "qué pasó durante la semana X"
@@ -164,30 +168,37 @@ function fmtRango(semana: string) {
 function fmtFecha(iso: string) {
   return new Date(iso + "T12:00:00Z").toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
 }
-function campanaDelDeal(w: WonByCloseDate, campana: string) {
-  return (w.campana_evento ?? "").split(",").map((s) => s.trim()).includes(campana);
+function campanaDelDeal(w: WonByCloseDate, campanas: Set<string>) {
+  return (w.campana_evento ?? "").split(",").map((s) => s.trim()).some((k) => campanas.has(k));
 }
 
 export function ReporteSemanal({
   cohortes,
   wons,
-  campana,
-  hoy,
+  campanasSel,
+  bdrsSel,
 }: {
   cohortes: CohorteEntrega[];
   wons: WonByCloseDate[];
-  campana: string;
-  hoy: string;
+  campanasSel: Set<string>; // vacío = todas (multi-select de Estado actual)
+  bdrsSel: Set<string>; // vacío = todos (SIN_BDR = sin asignar)
 }) {
+  const hoy = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const semanaActual = useMemo(() => mondayOf(hoy), [hoy]);
 
   const filtradas = useMemo(
-    () => (campana === "todas" ? cohortes : cohortes.filter((c) => c.campanas.includes(campana))),
-    [cohortes, campana]
+    () =>
+      cohortes.filter(
+        (c) =>
+          (campanasSel.size === 0 || c.campanas.some((k) => campanasSel.has(k))) &&
+          (bdrsSel.size === 0 || bdrsSel.has(c.assigned_bdr_name ?? SIN_BDR))
+      ),
+    [cohortes, campanasSel, bdrsSel]
   );
+  // Los deals no tienen BDR: solo filtran por campaña.
   const wonsFiltrados = useMemo(
-    () => wons.filter((w) => w.close_date && w.close_date.slice(0, 10) <= hoy && (campana === "todas" || campanaDelDeal(w, campana))),
-    [wons, campana, hoy]
+    () => wons.filter((w) => w.close_date && w.close_date.slice(0, 10) <= hoy && (campanasSel.size === 0 || campanaDelDeal(w, campanasSel))),
+    [wons, campanasSel, hoy]
   );
 
   // Todas las semanas desde la primera entrega hasta la actual (incluye semanas sin entrega:
@@ -631,8 +642,9 @@ export function ReporteSemanal({
         </div>
         <div className="text-muted" style={{ fontSize: 10, padding: "8px 14px", lineHeight: 1.5 }}>
           Cada empresa cuenta en UNA fila según su Outbound Stage actual en Attio; las cinco etapas + Otros suman Entregadas.
-          El filtro de campaña de arriba aplica (una empresa con varios tags entra en cada uno); el filtro de fechas no —
-          el eje de este reporte es la semana de entrega, no la de actividad. Click en una métrica para ver sus empresas.
+          Los filtros de campaña y BDR de arriba aplican (una empresa con varios tags entra en cada uno; los negocios ganados
+          solo filtran por campaña); el filtro de fechas no — su eje es la fecha del evento y el de este reporte, la semana de
+          entrega. Click en una métrica para ver sus empresas.
         </div>
       </div>
     </div>

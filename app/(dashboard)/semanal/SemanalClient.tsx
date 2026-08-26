@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { DailyProgress, WeeklyHito, CampanaFecha, BdrCompany, FunnelMovement, CohorteEntrega, WonByCloseDate } from "@/lib/supabase";
-import { ReporteSemanal } from "./ReporteSemanal";
+import { DailyProgress, WeeklyHito, CampanaFecha, BdrCompany, FunnelMovement } from "@/lib/supabase";
 import { StatCard } from "@/components/StatCard";
 import { DateFilter, DateRange } from "@/components/DateFilter";
 import { formatCurrency } from "@/lib/format";
@@ -192,16 +191,12 @@ export function SemanalClient({
   fechasEvento,
   bdrCompanies,
   movimientos,
-  cohortes,
-  wons,
 }: {
   dias: DailyProgress[];
   hitos: WeeklyHito[];
   fechasEvento: CampanaFecha[];
   bdrCompanies: BdrCompany[];
   movimientos: FunnelMovement[];
-  cohortes: CohorteEntrega[];
-  wons: WonByCloseDate[];
 }) {
   const [campana, setCampana] = useState<string>("todas");
   const [dateRange, setDateRange] = useState<DateRange>({});
@@ -666,11 +661,6 @@ export function SemanalClient({
           </>
         )}
       </div>
-      {/* Reporte semanal de gestión por cohorte de entrega (José + Cande 2026-08-26). Va arriba
-          del todo: es lo primero que miran. Respeta el filtro de campaña; el filtro de fechas
-          de la pestaña no le aplica (su eje es la semana de ENTREGA, no la de actividad). */}
-      <ReporteSemanal cohortes={cohortes} wons={wons} campana={campana} hoy={hoy} />
-
       <div
         className="card"
         style={{ marginBottom: 24, background: "var(--bg-secondary)", fontSize: 12, color: "var(--fg-secondary)" }}

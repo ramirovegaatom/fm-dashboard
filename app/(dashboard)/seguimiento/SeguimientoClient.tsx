@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { SeguimientoCompany } from "@/lib/supabase";
+import { SeguimientoCompany, CohorteEntrega, WonByCloseDate } from "@/lib/supabase";
+import { ReporteSemanal } from "./ReporteSemanal";
 import { DateFilter, type DateRange } from "@/components/DateFilter";
 import { SIN_BDR, ETAPAS, ETAPAS_PROCESADAS, etapaRank, CompanyRow, MultiSelectFilter, type EtapaKey } from "./shared";
 
@@ -29,7 +30,15 @@ function etapaHref(key: EtapaKey | "todas" | "procesadas", campanas: Set<string>
   return `/seguimiento/etapa?${params.toString()}`;
 }
 
-export function SeguimientoClient({ companies }: { companies: SeguimientoCompany[] }) {
+export function SeguimientoClient({
+  companies,
+  cohortes,
+  wons,
+}: {
+  companies: SeguimientoCompany[];
+  cohortes: CohorteEntrega[];
+  wons: WonByCloseDate[];
+}) {
   // Multi-select de campañas: vacío = todas (José + Cande 2026-08-26).
   const [campanasSel, setCampanasSel] = useState<Set<string>>(new Set());
   // Multi-select de BDRs: vacío = todos (feedback José 2026-07-17).
@@ -173,6 +182,10 @@ export function SeguimientoClient({ companies }: { companies: SeguimientoCompany
           {(dateRange.from || dateRange.to) ? " · por fecha del evento" : ""}
         </span>
       </div>
+
+      {/* Reporte semanal de gestión por cohorte de entrega (José + Cande 2026-08-26): arriba del
+          todo, debajo de los filtros porque los usa (campañas + BDRs; el de fechas no aplica). */}
+      <ReporteSemanal cohortes={cohortes} wons={wons} campanasSel={campanasSel} bdrsSel={bdrsSel} />
 
       {/* Alerta: pool sin BDR asignado (Camilo 2026-07-23) */}
       {sinAsignar > 0 && (
