@@ -486,6 +486,53 @@ export async function fetchBdrCompanies(): Promise<BdrCompany[]> {
   return out;
 }
 
+// Reporte semanal por cohorte de ENTREGA (fm_cohortes_entrega) — pedido José + Cande
+// 2026-08-26. Una fila por EMPRESA (dedup entre tags). Semana = la de fecha_entrada_pre_qm
+// (trigger de Attio: última entrada al stage PRE-QM). etapa_reporte = estado ACTUAL de la
+// empresa según outbound_stage (Attio no guarda historia de stage → el reporte es "cómo
+// está hoy cada cohorte", no "qué pasó durante la semana"). Decisiones Ramiro 2026-08-26:
+// qm incluye QM SHOW / NO SHOW / Cliente (una QM no desaparece cuando ocurre la reunión);
+// universo = empresas taggeadas a evento con fecha de entrada (no filtra por lead source).
+export type CohorteEntrega = {
+  attio_company_id: string;
+  company_name: string | null;
+  campanas: string[];
+  fecha_entrada_pre_qm: string;
+  fecha_entrada: string; // YYYY-MM-DD (UTC)
+  semana_entrega: string; // lunes (YYYY-MM-DD)
+  outbound_stage: string | null;
+  outbound_stage_since: string | null; // active_from del stage vigente en Attio
+  empresa_procesable: string | null;
+  lead_source: string | null;
+  lifecycle_stage: string | null;
+  assigned_bdr_name: string | null;
+  etapa_reporte: "por_procesar" | "procesando" | "procesada" | "qm" | "descartada" | "otros";
+  actividades: number; // llamadas + WhatsApps de prospección (misma definición que Seguimiento)
+};
+
+export async function fetchCohortesEntrega(): Promise<CohorteEntrega[]> {
+  const PAGE = 1000;
+  const out: CohorteEntrega[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data } = await supabase
+      .from("fm_cohortes_entrega")
+      .select("*")
+      .order("semana_entrega")
+      .order("company_name")
+      .range(from, from + PAGE - 1);
+    const rows = (data ?? []) as CohorteEntrega[];
+    out.push(...rows);
+    if (rows.length < PAGE) break;
+  }
+  return out;
+}
+
+// Wons por fecha de cierre (fm_won_by_close_date) — misma vista que la pestaña Deals.
+export async function fetchWonByCloseDate(): Promise<WonByCloseDate[]> {
+  const { data } = await supabase.from("fm_won_by_close_date").select("*").order("close_date", { ascending: false });
+  return (data ?? []) as WonByCloseDate[];
+}
+
 // Fecha del evento por campaña (fm_campana_fechas) — para marcar el inicio del evento
 // en la pestaña Semanal y el shortcut "Desde el evento".
 export type CampanaFecha = { campana_evento: string; evento_fecha: string };

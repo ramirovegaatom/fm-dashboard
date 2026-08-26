@@ -32,6 +32,15 @@ const ATTIO_COMPANIES_FLOW: LineageNode[] = [
   { label: "Dashboard", kind: "ui" },
 ];
 
+// Reporte semanal por cohorte de entrega (José + Cande 2026-08-26).
+const COHORTE_FLOW: LineageNode[] = [
+  { label: "Attio Companies", kind: "source", detail: "fecha_entrada_pre_qm · outbound_stage" },
+  { label: "fm-attio-sync", kind: "pipeline", detail: "phase=tc · cron 30 min" },
+  { label: "fm_tagged_companies", kind: "store" },
+  { label: "fm_cohortes_entrega", kind: "store", detail: "view · 1 fila por empresa" },
+  { label: "Dashboard", kind: "ui" },
+];
+
 const ATTIO_DEALS_FLOW: LineageNode[] = [
   { label: "Attio Deals", kind: "source" },
   { label: "fm-attio-sync", kind: "pipeline", detail: "edge fn · cron 4h" },
@@ -581,6 +590,69 @@ export const METRIC_LINEAGE: Record<string, LineageEntry> = {
     column: "COUNT / SUM(value_amount) por semana de close_date WHERE stage = 'Won 🎉'",
     update: "Sync Attio (cron 30 min / botón)",
     note: "Misma definición que la pestaña MRR cerrado (por fecha de cierre), acotada a deals con campaña FM.",
+  },
+  // ── Reporte semanal por cohorte de entrega (José + Cande 2026-08-26) ──
+  cohorte_entregadas: {
+    label: "Entregadas (cohorte de la semana)",
+    flow: COHORTE_FLOW,
+    table: "fm_cohortes_entrega",
+    column: "COUNT(empresa) por semana de fecha_entrada_pre_qm",
+    filter: "empresas taggeadas a un evento (campana_evento) con fecha de entrada a PRE-QM; una empresa cuenta UNA vez aunque tenga varios tags",
+    update: "Sync Attio phase=tc (cron 30 min / botón)",
+    note: "Semana = lunes a domingo de la fecha de entrada a PRE-QM (Attio: fecha_entrada_pre_qm, trigger que se refresca en cada re-entrada). El atributo tiene data desde agosto 2026: no hay cohortes anteriores. Lead Source y Empresa Procesable se muestran como criterio pero NO filtran (decisión Ramiro 2026-08-26: universo = taggeadas).",
+  },
+  cohorte_por_procesar: {
+    label: "Por procesar",
+    flow: COHORTE_FLOW,
+    table: "fm_cohortes_entrega",
+    column: "etapa_reporte = 'por_procesar'",
+    filter: "outbound_stage sigue en PRE-QM - Oportunidad Marketing, Not Started, Ready o vacío (nadie la movió)",
+    update: "Sync Attio phase=tc (cron 30 min / botón)",
+    note: "Alerta roja cuando la empresa lleva más de 7 días desde su entrada a PRE-QM sin cambiar de stage (regla José + Cande). El estado es el ACTUAL en Attio, no el de la semana.",
+  },
+  cohorte_procesando: {
+    label: "Procesando",
+    flow: COHORTE_FLOW,
+    table: "fm_cohortes_entrega",
+    column: "etapa_reporte = 'procesando'",
+    filter: "outbound_stage = Procesando o Con contacto",
+    update: "Sync Attio phase=tc (cron 30 min / botón)",
+    note: "Solo stage de Attio (a diferencia de la pestaña Estado actual, que valida con actividades). Se marca aparte cuántas están en Procesando sin ninguna llamada/WhatsApp registrado.",
+  },
+  cohorte_procesadas: {
+    label: "Procesadas",
+    flow: COHORTE_FLOW,
+    table: "fm_cohortes_entrega",
+    column: "etapa_reporte = 'procesada'",
+    filter: "outbound_stage = Procesada",
+    update: "Sync Attio phase=tc (cron 30 min / botón)",
+    note: "Terminaron el circuito sin respuesta positiva. Las que llegaron a QM cuentan en 'QMs generados', no acá.",
+  },
+  cohorte_qm: {
+    label: "QMs generados",
+    flow: COHORTE_FLOW,
+    table: "fm_cohortes_entrega",
+    column: "etapa_reporte = 'qm'",
+    filter: "outbound_stage = QM AGENDADA, QM SHOW, QM NO SHOW o Cliente",
+    update: "Sync Attio phase=tc (cron 30 min / botón)",
+    note: "Decisión Ramiro 2026-08-26: contar toda empresa que LLEGÓ a QM, esté donde esté hoy. Con solo 'QM AGENDADA' una QM desaparecía del reporte cuando ocurría la reunión (cohorte 10-08: 7 agendadas vs 17 ya en SHOW/NO SHOW/Cliente).",
+  },
+  cohorte_descartadas: {
+    label: "Descartadas (no ICP)",
+    flow: COHORTE_FLOW,
+    table: "fm_cohortes_entrega",
+    column: "etapa_reporte = 'descartada'",
+    filter: "outbound_stage = Descalificada",
+    update: "Sync Attio phase=tc (cron 30 min / botón)",
+    note: "RECYCLE y Lost NO cuentan como descartadas (van a 'Otros' para que la suma cierre contra Entregadas).",
+  },
+  cohorte_wons: {
+    label: "Negocios ganados (cierre en la semana)",
+    flow: ATTIO_DEALS_FLOW,
+    table: "fm_won_by_close_date",
+    column: "COUNT / SUM(value_amount) por semana de close_date WHERE stage = 'Won 🎉' AND campana_evento no vacío",
+    update: "Sync Attio (cron horario de deals / botón)",
+    note: "Ubicados por FECHA DE CIERRE del deal, no por cohorte de entrega de la empresa. Misma definición que la pestaña Deals. Los deals de evento sin campaña atribuida (cola de revisión) no cuentan hasta atribuirse.",
   },
   deals_sin_atribuir: {
     label: "Deals de evento sin atribuir (cola de revisión)",

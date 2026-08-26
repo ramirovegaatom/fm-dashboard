@@ -90,6 +90,13 @@ function extractActor(values: Record<string, unknown[]>, slug: string): { id: st
   const v = arr[0] as Record<string, unknown>;
   return { id: (v?.referenced_actor_id as string) ?? null, since: (v?.active_from as string) ?? null };
 }
+// v60 (2026-08-26): desde cuándo está vigente el valor actual de un atributo (Attio guarda
+// active_from por valor). Para outbound_stage = "desde cuándo está en este stage" — es lo
+// que permite la regla "7 días sin cambiar de stage" del reporte semanal (José + Cande).
+function extractSince(values: Record<string, unknown[]>, slug: string): string | null {
+  const arr = values?.[slug]; if (!arr?.length) return null;
+  return ((arr[0] as Record<string, unknown>)?.active_from as string) ?? null;
+}
 async function fetchWorkspaceMembers(): Promise<Map<string, string>> {
   const map = new Map<string, string>();
   try {
@@ -632,16 +639,16 @@ async function refreshColaSinAtribuir() {
   return { total: ids.length, updated, errors };
 }
 
-// ───────────────────────── Whatan: WhatsApp real de los BDRs ─────────────────────────
+// ───────────────────── Whatan: WhatsApp real de los BDRs ─────────────────────
 // v56 (2026-08-19, rediseño WhatsApp): los BDRs prospectan con Whatan (whatan.app, alias
 // WhatSync) — bandeja que conecta sus números de WhatsApp Business con Attio y crea notas
 // "WhatsApp Conversation - ..." a nivel People con el TRANSCRIPT por mensaje. Esos
 // WhatsApps no existían en activities (la cadena BigQuery solo trae campañas del producto).
-// Esta fase escanea las notas nuevas (watermark por created_at), parsea el transcript y
-// las inserta en activities con source='whatan' vía RPC whatan_insert_activities (dedup
-// por MENSAJE: Whatan puede crear notas duplicadas exactas — visto 2026-07-24).
-// ⚠️ Las filas NO cuentan en las vistas fm_* todavía (filtran sender='USER'): el switch de
-// definición se coordina con Cande/José antes de tocar las vistas.
+// Esta fase escanea las notas nuevas (cursor de offset), parsea el transcript y las
+// inserta en activities con source='whatan' vía RPC whatan_insert_activities (dedup por
+// MENSAJE: Whatan puede crear notas duplicadas exactas — visto 2026-07-24).
+// Las filas cuentan en las vistas fm_* desde el switch del 2026-08-19 (sender USER O
+// source whatan).
 // Solo se ingestan mensajes de personas mapeables a contactos_growth (attio_record_id o
 // teléfono): las conversaciones personales de los agentes (Whatan sincroniza el WhatsApp
 // completo) quedan afuera por diseño.
@@ -822,7 +829,6 @@ async function syncWhatanNotes(startOffset = -1, maxPages = 20) {
         contact_id: link.contact_id,
         company_id: link.company_id,
         activity_type: m.direction === "outbound" ? "whatsapp_sent" : "whatsapp_replied",
-        // dedup por mensaje (no por nota): persona + minuto + dirección + hash del texto
         source_id: `${p.personId}|${m.ts}|${m.direction}|${whatanHash(m.text)}`,
         activity_date: m.ts,
         metadata: {
@@ -899,6 +905,14 @@ async function syncTaggedCompanies() {
           assigned_bdr_id: bdr.id,
           assigned_bdr_name: bdr.id ? (members.get(bdr.id) ?? bdr.id) : null,
           bdr_assigned_at: bdr.since,
+          // v60 (2026-08-26, José + Cande): reporte semanal por cohorte de ENTREGA. La semana
+          // de una empresa es la de fecha_entrada_pre_qm (trigger de Attio: última entrada al
+          // stage PRE-QM). lead_s / empresa_procesable se guardan para el panel de criterios;
+          // outbound_stage_since para la alerta de 7 días sin cambiar de stage.
+          fecha_entrada_pre_qm: extractVal(vals, "fecha_entrada_pre_qm"),
+          empresa_procesable: extractVal(vals, "empresa_procesable"),
+          lead_source: extractVal(vals, "lead_s"),
+          outbound_stage_since: extractSince(vals, "outbound_stage"),
           synced_at: new Date().toISOString(),
         });
       }
