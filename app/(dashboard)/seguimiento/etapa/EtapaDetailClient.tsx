@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { SeguimientoCompany } from "@/lib/supabase";
-import { SIN_BDR, ETAPAS, ETAPAS_PROCESADAS, etapaRank, CompanyRow, ReassignBar, type EtapaKey } from "../shared";
+import { SIN_BDR, ETAPAS, ETAPAS_PROCESADAS, etapaRank, CompanyRow, ReassignBar, MultiSelectFilter, type EtapaKey } from "../shared";
 
 // "procesadas" = acumulado de las 4 etapas terminales (fila agregada del funnel general).
 type EtapaSel = EtapaKey | "todas" | "procesadas";
@@ -12,15 +12,21 @@ type EtapaSel = EtapaKey | "todas" | "procesadas";
 // campaña y data completa. Pills para saltar de etapa + buscador + filtros. José 2026-07-17.
 export function EtapaDetailClient({
   etapaInicial,
-  campanaInicial,
+  campanasIniciales,
   companies,
 }: {
   etapaInicial: string;
-  campanaInicial: string;
+  campanasIniciales: string[];
   companies: SeguimientoCompany[];
 }) {
   const [etapa, setEtapa] = useState<EtapaSel>(etapaInicial as EtapaSel);
-  const [campana, setCampana] = useState<string>(campanaInicial);
+  // Multi-select de campañas: vacío = todas (José + Cande 2026-08-26). Llega preseleccionado
+  // desde el funnel general vía ?campana= (repetible).
+  const [campanasSel, setCampanasSel] = useState<Set<string>>(new Set(campanasIniciales));
+  const inCampana = useCallback(
+    (c: SeguimientoCompany) => campanasSel.size === 0 || campanasSel.has(c.campana_evento),
+    [campanasSel]
+  );
   const [bdr, setBdr] = useState<string>("todos");
   const [query, setQuery] = useState("");
   // Selección para reasignar BDR en bulk (por attio_company_id). Stefany/José 2026-07-17.
@@ -46,21 +52,21 @@ export function EtapaDetailClient({
   const etapaCounts = useMemo(() => {
     const counts: Record<EtapaKey, number> = { sin_prospectar: 0, siendo_prospectada: 0, procesada: 0, respuesta_positiva: 0, dropoff: 0, recycle: 0 };
     for (const c of companies) {
-      if (campana !== "todas" && c.campana_evento !== campana) continue;
+      if (!inCampana(c)) continue;
       counts[c.etapa_funnel]++;
     }
     return counts;
-  }, [companies, campana]);
+  }, [companies, inCampana]);
 
   const totalCampana = useMemo(
-    () => (campana === "todas" ? companies.length : companies.filter((c) => c.campana_evento === campana).length),
-    [companies, campana]
+    () => companies.filter(inCampana).length,
+    [companies, inCampana]
   );
 
-  const campanas = useMemo(() => {
-    const set = new Set<string>();
-    companies.forEach((c) => set.add(c.campana_evento));
-    return [...set].sort();
+  const campanaOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of companies) counts.set(c.campana_evento, (counts.get(c.campana_evento) ?? 0) + 1);
+    return [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([name, count]) => ({ name, count }));
   }, [companies]);
 
   const bdrs = useMemo(() => {
@@ -75,7 +81,7 @@ export function EtapaDetailClient({
       if (etapa === "procesadas") {
         if (!ETAPAS_PROCESADAS.includes(c.etapa_funnel)) return false;
       } else if (etapa !== "todas" && c.etapa_funnel !== etapa) return false;
-      if (campana !== "todas" && c.campana_evento !== campana) return false;
+      if (!inCampana(c)) return false;
       if (bdr !== "todos" && (c.assigned_bdr_name ?? SIN_BDR) !== bdr) return false;
       if (q && !(c.company_name ?? "").toLowerCase().includes(q)) return false;
       return true;
@@ -83,7 +89,7 @@ export function EtapaDetailClient({
     return list.sort(
       (a, b) => etapaRank(a.etapa_funnel) - etapaRank(b.etapa_funnel) || (a.bdr_assigned_at ?? "").localeCompare(b.bdr_assigned_at ?? "")
     );
-  }, [companies, etapa, campana, bdr, query]);
+  }, [companies, etapa, inCampana, bdr, query]);
 
   const etapaActiva = etapa !== "todas" && etapa !== "procesadas" ? ETAPAS.find((e) => e.key === etapa) : null;
   const headerLabel = etapa === "procesadas" ? "Procesadas" : etapaActiva ? etapaActiva.label : "Todas las empresas";
@@ -104,7 +110,7 @@ export function EtapaDetailClient({
         </h2>
         <div className="text-muted" style={{ fontSize: 12 }}>
           {headerDetalle}
-          {campana !== "todas" ? ` · campaña: ${campana}` : ""}
+          {campanasSel.size > 0 ? ` · campaña${campanasSel.size === 1 ? "" : "s"}: ${[...campanasSel].sort().join(", ")}` : ""}
         </div>
       </div>
 
@@ -148,12 +154,15 @@ export function EtapaDetailClient({
           placeholder="Buscar empresa…"
           style={{ ...inputStyle, minWidth: 200 }}
         />
-        <select value={campana} onChange={(e) => setCampana(e.target.value)} style={selectStyle(campana !== "todas")}>
-          <option value="todas">Todas las campañas ({campanas.length})</option>
-          {campanas.map((c) => (
-            <option key={c} value={c}>{c}</option>
-          ))}
-        </select>
+        <MultiSelectFilter
+          options={campanaOptions}
+          selected={campanasSel}
+          onChange={setCampanasSel}
+          allLabel="Todas las campañas"
+          pluralLabel="campañas"
+          searchPlaceholder="Buscar evento…"
+          clearLabel="Limpiar selección (ver todas)"
+        />
         <select value={bdr} onChange={(e) => setBdr(e.target.value)} style={selectStyle(bdr !== "todos")}>
           <option value="todos">Todos los BDRs ({bdrs.length})</option>
           {bdrs.map((b) => (

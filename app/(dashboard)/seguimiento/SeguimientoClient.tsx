@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { SeguimientoCompany } from "@/lib/supabase";
 import { DateFilter, type DateRange } from "@/components/DateFilter";
-import { SIN_BDR, ETAPAS, ETAPAS_PROCESADAS, etapaRank, CompanyRow, type EtapaKey } from "./shared";
+import { SIN_BDR, ETAPAS, ETAPAS_PROCESADAS, etapaRank, CompanyRow, MultiSelectFilter, type EtapaKey } from "./shared";
 
 // Spec del equipo + iteraciones José (2026-07-16/17): funnel por Outbound Stage VALIDADO
 // por actividades reales, scorecard por BDR con desglose por etapa, filtro de campaña con
-// búsqueda, filtro multi-select de BDRs. Las stats de cada BDR abren un PREVIEW corto
+// búsqueda, filtro multi-select de BDRs. 2026-08-26 (José + Cande): el filtro de campaña
+// también es multi-select — antes era "todas o una sola" y necesitaban combinar varias. Las stats de cada BDR abren un PREVIEW corto
 // (5 empresas); el detalle completo vive en la subpágina /seguimiento/bdr?name=…
 // Circuito v2 (Ramiro+Candela 2026-08-06): circuito completo = ≥2 contactos con estructura
 // (3 llamadas + 2 WhatsApp o 2+3) cada uno. QM/Cliente valen sin circuito (badge "por stage");
@@ -20,15 +21,17 @@ function bdrDetailHref(name: string) {
   return `/seguimiento/bdr?name=${encodeURIComponent(name)}`;
 }
 
-// Detalle de una etapa del funnel general (José 2026-07-17). Propaga la campaña activa.
-function etapaHref(key: EtapaKey | "todas" | "procesadas", campana: string) {
+// Detalle de una etapa del funnel general (José 2026-07-17). Propaga las campañas activas
+// como `?campana=a&campana=b` (repetido; vacío = todas).
+function etapaHref(key: EtapaKey | "todas" | "procesadas", campanas: Set<string>) {
   const params = new URLSearchParams({ e: key });
-  if (campana !== "todas") params.set("campana", campana);
+  for (const c of [...campanas].sort()) params.append("campana", c);
   return `/seguimiento/etapa?${params.toString()}`;
 }
 
 export function SeguimientoClient({ companies }: { companies: SeguimientoCompany[] }) {
-  const [campana, setCampana] = useState<string>("todas");
+  // Multi-select de campañas: vacío = todas (José + Cande 2026-08-26).
+  const [campanasSel, setCampanasSel] = useState<Set<string>>(new Set());
   // Multi-select de BDRs: vacío = todos (feedback José 2026-07-17).
   const [bdrsSel, setBdrsSel] = useState<Set<string>>(new Set());
   // Filtro de fechas por fecha del EVENTO de la campaña (José: Q/mes, como en eventos).
@@ -46,15 +49,16 @@ export function SeguimientoClient({ companies }: { companies: SeguimientoCompany
     });
   }, [companies, dateRange]);
 
-  const campanas = useMemo(() => {
-    const set = new Set<string>();
-    byDate.forEach((c) => set.add(c.campana_evento));
-    return [...set].sort();
+  // Opciones de campaña (dentro del rango de fechas), con cantidad de empresas, alfabéticas.
+  const campanaOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of byDate) counts.set(c.campana_evento, (counts.get(c.campana_evento) ?? 0) + 1);
+    return [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([name, count]) => ({ name, count }));
   }, [byDate]);
 
   const byCampana = useMemo(
-    () => (campana === "todas" ? byDate : byDate.filter((c) => c.campana_evento === campana)),
-    [byDate, campana]
+    () => (campanasSel.size === 0 ? byDate : byDate.filter((c) => campanasSel.has(c.campana_evento))),
+    [byDate, campanasSel]
   );
 
   // Opciones de BDR (dentro de la campaña activa), ordenadas por asignadas desc.
@@ -143,12 +147,28 @@ export function SeguimientoClient({ companies }: { companies: SeguimientoCompany
 
       {/* Filtros: campaña (búsqueda) + BDRs (multi-select) + fechas (Q/mes/custom) */}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 24, alignItems: "center" }}>
-        <CampanaSearch campanas={campanas} value={campana} onChange={setCampana} />
-        <BdrMultiSelect options={bdrOptions} selected={bdrsSel} onChange={setBdrsSel} />
+        <MultiSelectFilter
+          options={campanaOptions}
+          selected={campanasSel}
+          onChange={setCampanasSel}
+          allLabel="Todas las campañas"
+          pluralLabel="campañas"
+          searchPlaceholder="Buscar evento…"
+          clearLabel="Limpiar selección (ver todas)"
+        />
+        <MultiSelectFilter
+          options={bdrOptions}
+          selected={bdrsSel}
+          onChange={setBdrsSel}
+          allLabel="Todos los BDRs"
+          pluralLabel="BDRs"
+          searchPlaceholder="Buscar BDR…"
+          clearLabel="Limpiar selección (ver todos)"
+        />
         <DateFilter value={dateRange} onChange={setDateRange} />
         <span className="text-muted" style={{ fontSize: 12 }}>
           {asignadas} empresas asignadas
-          {campana !== "todas" ? " · campaña filtrada" : ""}
+          {campanasSel.size > 0 ? ` · ${campanasSel.size} campaña${campanasSel.size === 1 ? "" : "s"}` : ""}
           {bdrsSel.size > 0 ? ` · ${bdrsSel.size} BDR${bdrsSel.size === 1 ? "" : "s"}` : ""}
           {(dateRange.from || dateRange.to) ? " · por fecha del evento" : ""}
         </span>
@@ -193,7 +213,7 @@ export function SeguimientoClient({ companies }: { companies: SeguimientoCompany
           total={asignadas}
           color="var(--fg-primary)"
           bold
-          href={etapaHref("todas", campana)}
+          href={etapaHref("todas", campanasSel)}
         />
         {/* Pipeline: sin procesar → procesando → procesadas (acumulado que se abre en sus resultados) */}
         {ETAPAS.filter((e) => !ETAPAS_PROCESADAS.includes(e.key)).map((e) => (
@@ -204,7 +224,7 @@ export function SeguimientoClient({ companies }: { companies: SeguimientoCompany
             value={funnel[e.key]}
             total={asignadas}
             color={e.color}
-            href={etapaHref(e.key, campana)}
+            href={etapaHref(e.key, campanasSel)}
           />
         ))}
         <FunnelRow
@@ -214,7 +234,7 @@ export function SeguimientoClient({ companies }: { companies: SeguimientoCompany
           total={asignadas}
           color="var(--fg-primary)"
           bold
-          href={etapaHref("procesadas", campana)}
+          href={etapaHref("procesadas", campanasSel)}
         />
         {ETAPAS.filter((e) => ETAPAS_PROCESADAS.includes(e.key)).map((e) => (
           <FunnelRow
@@ -224,7 +244,7 @@ export function SeguimientoClient({ companies }: { companies: SeguimientoCompany
             value={funnel[e.key]}
             total={asignadas}
             color={e.color}
-            href={etapaHref(e.key, campana)}
+            href={etapaHref(e.key, campanasSel)}
             indent
           />
         ))}
@@ -259,214 +279,6 @@ export function SeguimientoClient({ companies }: { companies: SeguimientoCompany
         )}
       </div>
     </div>
-  );
-}
-
-// Combobox de campaña con búsqueda (60+ campañas no escalan en un select pelado).
-function CampanaSearch({ campanas, value, onChange }: { campanas: string[]; value: string; onChange: (v: string) => void }) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    inputRef.current?.focus();
-    function onDown(e: MouseEvent) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [open]);
-
-  const matches = useMemo(
-    () => campanas.filter((c) => c.toLowerCase().includes(query.trim().toLowerCase())),
-    [campanas, query]
-  );
-
-  function pick(v: string) {
-    onChange(v);
-    setOpen(false);
-    setQuery("");
-  }
-
-  const isActive = value !== "todas";
-  return (
-    <div ref={wrapRef} style={{ position: "relative", display: "inline-block" }}>
-      <button onClick={() => setOpen((o) => !o)} style={filterBtnStyle(isActive)}>
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {isActive ? value : `Todas las campañas (${campanas.length})`}
-        </span>
-        <span style={{ fontSize: 10 }}>▼</span>
-      </button>
-
-      {open && (
-        <div style={dropdownStyle}>
-          <input
-            ref={inputRef}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Buscar evento…"
-            style={searchInputStyle}
-          />
-          <div style={{ maxHeight: 320, overflowY: "auto" }}>
-            <DropdownItem label={`Todas las campañas (${campanas.length})`} selected={value === "todas"} onClick={() => pick("todas")} />
-            {matches.map((c) => (
-              <DropdownItem key={c} label={c} selected={value === c} onClick={() => pick(c)} />
-            ))}
-            {matches.length === 0 && (
-              <div className="text-muted" style={{ fontSize: 12, padding: "8px 10px" }}>Sin resultados para “{query}”.</div>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Multi-select de BDRs con búsqueda: elegís qué personas se ven en la vista.
-// Selección vacía = todos. José 2026-07-17.
-function BdrMultiSelect({
-  options,
-  selected,
-  onChange,
-}: {
-  options: { name: string; count: number }[];
-  selected: Set<string>;
-  onChange: (s: Set<string>) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    inputRef.current?.focus();
-    function onDown(e: MouseEvent) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [open]);
-
-  const matches = useMemo(
-    () => options.filter((o) => o.name.toLowerCase().includes(query.trim().toLowerCase())),
-    [options, query]
-  );
-
-  function toggle(name: string) {
-    const next = new Set(selected);
-    if (next.has(name)) next.delete(name);
-    else next.add(name);
-    onChange(next);
-  }
-
-  const isActive = selected.size > 0;
-  const label = !isActive
-    ? `Todos los BDRs (${options.length})`
-    : selected.size === 1
-    ? [...selected][0]
-    : `${selected.size} BDRs seleccionados`;
-
-  return (
-    <div ref={wrapRef} style={{ position: "relative", display: "inline-block" }}>
-      <button onClick={() => setOpen((o) => !o)} style={filterBtnStyle(isActive)}>
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
-        <span style={{ fontSize: 10 }}>▼</span>
-      </button>
-
-      {open && (
-        <div style={dropdownStyle}>
-          <input
-            ref={inputRef}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Buscar BDR…"
-            style={searchInputStyle}
-          />
-          {isActive && (
-            <button
-              onClick={() => onChange(new Set())}
-              style={{ all: "unset", cursor: "pointer", display: "block", padding: "4px 10px 8px", fontSize: 11, fontWeight: 600, color: "var(--fg-status-info)" }}
-            >
-              Limpiar selección (ver todos)
-            </button>
-          )}
-          <div style={{ maxHeight: 320, overflowY: "auto" }}>
-            {matches.map((o) => {
-              const checked = selected.has(o.name);
-              return (
-                <button
-                  key={o.name}
-                  onClick={() => toggle(o.name)}
-                  style={{
-                    all: "unset",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 8,
-                    width: "calc(100% - 20px)",
-                    padding: "7px 10px",
-                    fontSize: 12,
-                    fontWeight: checked ? 700 : 500,
-                    borderRadius: 8,
-                    background: checked ? "var(--bg-secondary)" : "transparent",
-                    color: "var(--fg-primary)",
-                  }}
-                >
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    <span
-                      style={{
-                        width: 14, height: 14, borderRadius: 4, flexShrink: 0,
-                        border: checked ? "none" : "1.5px solid var(--border-tertiary)",
-                        background: checked ? "var(--fg-primary)" : "transparent",
-                        color: "var(--bg-primary)",
-                        fontSize: 10, lineHeight: "14px", textAlign: "center", fontWeight: 700,
-                      }}
-                    >
-                      {checked ? "✓" : ""}
-                    </span>
-                    {o.name}
-                  </span>
-                  <span className="text-muted" style={{ fontSize: 11, flexShrink: 0 }}>{o.count}</span>
-                </button>
-              );
-            })}
-            {matches.length === 0 && (
-              <div className="text-muted" style={{ fontSize: 12, padding: "8px 10px" }}>Sin resultados para “{query}”.</div>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function DropdownItem({ label, selected, onClick }: { label: string; selected: boolean; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        display: "block",
-        width: "100%",
-        textAlign: "left",
-        padding: "7px 10px",
-        fontSize: 12,
-        fontWeight: selected ? 700 : 500,
-        borderRadius: 8,
-        border: "none",
-        background: selected ? "var(--bg-secondary)" : "transparent",
-        color: "var(--fg-primary)",
-        cursor: "pointer",
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        whiteSpace: "nowrap",
-      }}
-    >
-      {selected ? "✓ " : ""}{label}
-    </button>
   );
 }
 
@@ -625,43 +437,3 @@ function BdrStat({ value, label, color, dimZero, active, onClick }: {
     </button>
   );
 }
-
-const filterBtnStyle = (active: boolean): React.CSSProperties => ({
-  padding: "6px 12px",
-  fontSize: 12,
-  fontWeight: 600,
-  borderRadius: 8,
-  border: "1px solid var(--border-tertiary)",
-  background: active ? "var(--fg-primary)" : "var(--bg-primary)",
-  color: active ? "var(--bg-primary)" : "var(--fg-secondary)",
-  cursor: "pointer",
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 8,
-  maxWidth: 380,
-});
-
-const dropdownStyle: React.CSSProperties = {
-  position: "absolute",
-  top: "calc(100% + 4px)",
-  left: 0,
-  zIndex: 50,
-  width: 340,
-  background: "var(--bg-primary)",
-  border: "1px solid var(--border-tertiary)",
-  borderRadius: 12,
-  boxShadow: "0px 8px 24px rgba(9,9,11,0.12)",
-  padding: 8,
-};
-
-const searchInputStyle: React.CSSProperties = {
-  width: "calc(100% - 20px)",
-  padding: "7px 10px",
-  fontSize: 12,
-  borderRadius: 8,
-  border: "1px solid var(--border-tertiary)",
-  background: "var(--bg-secondary)",
-  color: "var(--fg-primary)",
-  outline: "none",
-  marginBottom: 6,
-};

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { SeguimientoCompany } from "@/lib/supabase";
 import { attioCompanyUrl } from "@/lib/attio";
@@ -335,3 +335,176 @@ export function ReassignBar({
     </div>
   );
 }
+
+// ── Multi-select con búsqueda (campañas, BDRs) ─────────────────────────────────────
+// Selección vacía = todas las opciones. Es el patrón del multi-select de BDRs (José
+// 2026-07-17) generalizado el 2026-08-26, cuando José y Cande pidieron poder elegir
+// varias campañas a la vez en Seguimiento (antes: todas o una sola). Las opciones
+// seleccionadas se muestran primero para que con 60+ campañas se vea qué está elegido.
+export function MultiSelectFilter({
+  options,
+  selected,
+  onChange,
+  allLabel,
+  pluralLabel,
+  searchPlaceholder,
+  clearLabel = "Limpiar selección",
+}: {
+  options: { name: string; count?: number }[];
+  selected: Set<string>;
+  onChange: (s: Set<string>) => void;
+  allLabel: string; // ej. "Todas las campañas" → botón "Todas las campañas (N)"
+  pluralLabel: string; // ej. "campañas" → "3 campañas seleccionadas"
+  searchPlaceholder: string;
+  clearLabel?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    inputRef.current?.focus();
+    function onDown(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const list = q ? options.filter((o) => o.name.toLowerCase().includes(q)) : options;
+    // Seleccionadas arriba (orden estable dentro de cada grupo).
+    return [...list].sort((a, b) => Number(selected.has(b.name)) - Number(selected.has(a.name)));
+  }, [options, query, selected]);
+
+  function toggle(name: string) {
+    const next = new Set(selected);
+    if (next.has(name)) next.delete(name);
+    else next.add(name);
+    onChange(next);
+  }
+
+  const isActive = selected.size > 0;
+  const label = !isActive
+    ? `${allLabel} (${options.length})`
+    : selected.size === 1
+    ? [...selected][0]
+    : `${selected.size} ${pluralLabel} seleccionadas`;
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative", display: "inline-block" }}>
+      <button onClick={() => setOpen((o) => !o)} style={filterBtnStyle(isActive)} title={isActive ? [...selected].join(" · ") : undefined}>
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+        <span style={{ fontSize: 10 }}>▼</span>
+      </button>
+
+      {open && (
+        <div style={dropdownStyle}>
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={searchPlaceholder}
+            style={searchInputStyle}
+          />
+          {isActive && (
+            <button
+              onClick={() => onChange(new Set())}
+              style={{ all: "unset", cursor: "pointer", display: "block", padding: "4px 10px 8px", fontSize: 11, fontWeight: 600, color: "var(--fg-status-info)" }}
+            >
+              {clearLabel}
+            </button>
+          )}
+          <div style={{ maxHeight: 320, overflowY: "auto" }}>
+            {matches.map((o) => {
+              const checked = selected.has(o.name);
+              return (
+                <button
+                  key={o.name}
+                  onClick={() => toggle(o.name)}
+                  style={{
+                    all: "unset",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 8,
+                    width: "calc(100% - 20px)",
+                    padding: "7px 10px",
+                    fontSize: 12,
+                    fontWeight: checked ? 700 : 500,
+                    borderRadius: 8,
+                    background: checked ? "var(--bg-secondary)" : "transparent",
+                    color: "var(--fg-primary)",
+                  }}
+                >
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <span
+                      style={{
+                        width: 14, height: 14, borderRadius: 4, flexShrink: 0,
+                        border: checked ? "none" : "1.5px solid var(--border-tertiary)",
+                        background: checked ? "var(--fg-primary)" : "transparent",
+                        color: "var(--bg-primary)",
+                        fontSize: 10, lineHeight: "14px", textAlign: "center", fontWeight: 700,
+                      }}
+                    >
+                      {checked ? "✓" : ""}
+                    </span>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{o.name}</span>
+                  </span>
+                  {o.count !== undefined && <span className="text-muted" style={{ fontSize: 11, flexShrink: 0 }}>{o.count}</span>}
+                </button>
+              );
+            })}
+            {matches.length === 0 && (
+              <div className="text-muted" style={{ fontSize: 12, padding: "8px 10px" }}>Sin resultados para “{query}”.</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export const filterBtnStyle = (active: boolean): React.CSSProperties => ({
+  padding: "6px 12px",
+  fontSize: 12,
+  fontWeight: 600,
+  borderRadius: 8,
+  border: "1px solid var(--border-tertiary)",
+  background: active ? "var(--fg-primary)" : "var(--bg-primary)",
+  color: active ? "var(--bg-primary)" : "var(--fg-secondary)",
+  cursor: "pointer",
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 8,
+  maxWidth: 380,
+});
+
+export const dropdownStyle: React.CSSProperties = {
+  position: "absolute",
+  top: "calc(100% + 4px)",
+  left: 0,
+  zIndex: 50,
+  width: 340,
+  background: "var(--bg-primary)",
+  border: "1px solid var(--border-tertiary)",
+  borderRadius: 12,
+  boxShadow: "0px 8px 24px rgba(9,9,11,0.12)",
+  padding: 8,
+};
+
+export const searchInputStyle: React.CSSProperties = {
+  width: "calc(100% - 20px)",
+  padding: "7px 10px",
+  fontSize: 12,
+  borderRadius: 8,
+  border: "1px solid var(--border-tertiary)",
+  background: "var(--bg-secondary)",
+  color: "var(--fg-primary)",
+  outline: "none",
+  marginBottom: 6,
+};
