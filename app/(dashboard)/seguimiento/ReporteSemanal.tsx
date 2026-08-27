@@ -327,7 +327,8 @@ export function ReporteSemanal({
       </div>
 
       {/* Semanas */}
-      <div ref={pillsRef} style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 6, marginBottom: 12 }}>
+      {/* overflow-x:auto también recorta en vertical: el padding superior/derecho deja lugar al badge "!" (top/right -5). */}
+      <div ref={pillsRef} style={{ display: "flex", gap: 6, overflowX: "auto", padding: "6px 8px 6px 0", marginBottom: 8 }}>
         {semanas.map((s, i) => {
           const active = i === weekIdx;
           const alerta = s.vencidas > 0;
