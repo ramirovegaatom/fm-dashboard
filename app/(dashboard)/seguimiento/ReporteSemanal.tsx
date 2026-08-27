@@ -177,13 +177,16 @@ export function ReporteSemanal({
   wons,
   campanasSel,
   bdrsSel,
+  hoy,
+  sinFecha,
 }: {
   cohortes: CohorteEntrega[];
   wons: WonByCloseDate[];
   campanasSel: Set<string>; // vacío = todas (multi-select de Estado actual)
   bdrsSel: Set<string>; // vacío = todos (SIN_BDR = sin asignar)
+  hoy: string; // YYYY-MM-DD en hora Argentina (viene del server)
+  sinFecha: number; // empresas de la selección sin fecha de entrada a PRE-QM (no entran al reporte)
 }) {
-  const hoy = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const semanaActual = useMemo(() => mondayOf(hoy), [hoy]);
 
   const filtradas = useMemo(
@@ -394,8 +397,8 @@ export function ReporteSemanal({
         </div>
       )}
 
-      {/* Chip de entrega */}
-      <div style={{ marginBottom: 12 }}>
+      {/* Chip de entrega + gap de cobertura */}
+      <div style={{ marginBottom: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         {w.entregadas > 0 ? (
           <span className="badge" style={{ background: "var(--bg-status-info)", color: "var(--fg-status-info)", fontSize: 11 }}>
             📦 Entrega: <strong style={{ margin: "0 4px" }}>{w.entregadas} empresas</strong> — {fmtRango(w.semana)}
@@ -405,6 +408,15 @@ export function ReporteSemanal({
         ) : (
           <span className="badge" style={{ background: "var(--bg-secondary)", color: "var(--fg-quaternary)", fontSize: 11 }}>
             Sin entrega esta semana — el procesamiento de las anteriores continúa
+          </span>
+        )}
+        {sinFecha > 0 && (
+          <span
+            className="badge"
+            style={{ background: "var(--bg-status-warning)", color: "var(--fg-status-warning)", fontSize: 11 }}
+            title="Empresas de la selección (mismo universo que el funnel de abajo) que nunca pasaron por el stage PRE-QM en Attio, o pasaron antes de que existiera el trigger que registra la fecha. No tienen semana de entrega y no cuentan en ninguna métrica del reporte."
+          >
+            ⚠ {sinFecha} empresa{sinFecha === 1 ? "" : "s"} de la selección sin fecha de entrada a PRE-QM — no entran al reporte
           </span>
         )}
       </div>
@@ -645,7 +657,10 @@ export function ReporteSemanal({
           Cada empresa cuenta en UNA fila según su Outbound Stage actual en Attio; las cinco etapas + Otros suman Entregadas.
           Los filtros de campaña y BDR de arriba aplican (una empresa con varios tags entra en cada uno; los negocios ganados
           solo filtran por campaña); el filtro de fechas no — su eje es la fecha del evento y el de este reporte, la semana de
-          entrega. Click en una métrica para ver sus empresas.
+          entrega. <strong>La fecha de entrada a PRE-QM es de la EMPRESA</strong> (su última entrada al stage), no del evento:
+          una empresa taggeada a varios eventos cae en la semana en que entró a PRE-QM, que puede ser la de otro evento — por eso
+          con una campaña filtrada pueden verse semanas sueltas con 1 o 2 empresas además de la entrega principal. Las empresas
+          que nunca pasaron por PRE-QM no tienen semana y quedan fuera (se avisa arriba). Click en una métrica para ver sus empresas.
         </div>
       </div>
     </div>

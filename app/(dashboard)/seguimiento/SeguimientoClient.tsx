@@ -34,10 +34,12 @@ export function SeguimientoClient({
   companies,
   cohortes,
   wons,
+  hoy,
 }: {
   companies: SeguimientoCompany[];
   cohortes: CohorteEntrega[];
   wons: WonByCloseDate[];
+  hoy: string; // YYYY-MM-DD en hora Argentina
 }) {
   // Multi-select de campañas: vacío = todas (José + Cande 2026-08-26).
   const [campanasSel, setCampanasSel] = useState<Set<string>>(new Set());
@@ -81,6 +83,21 @@ export function SeguimientoClient({
       .sort((a, b) => (a[0] === SIN_BDR ? 1 : 0) - (b[0] === SIN_BDR ? 1 : 0) || b[1] - a[1])
       .map(([name, count]) => ({ name, count }));
   }, [byCampana]);
+
+  // Empresas de la selección (campañas + BDRs, sin fecha del evento) que NO tienen fecha de
+  // entrada a PRE-QM y por eso no entran al reporte semanal. Hallazgo Spark Bogotá 2026-08-27:
+  // 33 de 275 (15 en QM SHOW) nunca pasaron por PRE-QM → el reporte mostraba 44 QMs y el
+  // funnel 67. Decisión Ramiro: mantener la fecha PRE-QM como definición y hacer visible el gap.
+  const cohorteIds = useMemo(() => new Set(cohortes.map((c) => c.attio_company_id)), [cohortes]);
+  const sinFechaEntrega = useMemo(() => {
+    const ids = new Set<string>();
+    for (const c of companies) {
+      if (campanasSel.size > 0 && !campanasSel.has(c.campana_evento)) continue;
+      if (bdrsSel.size > 0 && !bdrsSel.has(c.assigned_bdr_name ?? SIN_BDR)) continue;
+      if (!cohorteIds.has(c.attio_company_id)) ids.add(c.attio_company_id);
+    }
+    return ids.size;
+  }, [companies, campanasSel, bdrsSel, cohorteIds]);
 
   // Filtro por BDR aplicado a TODA la vista (funnel + scorecard), coherente con el resto.
   const filtered = useMemo(() => {
@@ -185,7 +202,7 @@ export function SeguimientoClient({
 
       {/* Reporte semanal de gestión por cohorte de entrega (José + Cande 2026-08-26): arriba del
           todo, debajo de los filtros porque los usa (campañas + BDRs; el de fechas no aplica). */}
-      <ReporteSemanal cohortes={cohortes} wons={wons} campanasSel={campanasSel} bdrsSel={bdrsSel} />
+      <ReporteSemanal cohortes={cohortes} wons={wons} campanasSel={campanasSel} bdrsSel={bdrsSel} hoy={hoy} sinFecha={sinFechaEntrega} />
 
       {/* Alerta: pool sin BDR asignado (Camilo 2026-07-23) */}
       {sinAsignar > 0 && (
