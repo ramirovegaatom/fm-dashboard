@@ -41,6 +41,14 @@ const COHORTE_FLOW: LineageNode[] = [
   { label: "Dashboard", kind: "ui" },
 ];
 
+// Backlog "Por procesar" en el tiempo (Camilo 2026-08-27): fotos diarias del funnel.
+const BACKLOG_FLOW: LineageNode[] = [
+  { label: "fm_seguimiento_companies", kind: "store", detail: "view · funnel de Estado actual" },
+  { label: "fm_capture_backlog_snapshot", kind: "pipeline", detail: "pg_cron · cada hora" },
+  { label: "fm_backlog_snapshots", kind: "store", detail: "1 foto por día" },
+  { label: "Dashboard", kind: "ui" },
+];
+
 const ATTIO_DEALS_FLOW: LineageNode[] = [
   { label: "Attio Deals", kind: "source" },
   { label: "fm-attio-sync", kind: "pipeline", detail: "edge fn · cron 4h" },
@@ -600,6 +608,15 @@ export const METRIC_LINEAGE: Record<string, LineageEntry> = {
     filter: "empresas taggeadas a un evento (campana_evento) con fecha de entrada a PRE-QM; una empresa cuenta UNA vez aunque tenga varios tags",
     update: "Sync Attio phase=tc (cron 30 min / botón)",
     note: "Semana = lunes a domingo de la fecha de entrada a PRE-QM (Attio: fecha_entrada_pre_qm, trigger que se refresca en cada re-entrada). El atributo tiene data desde agosto 2026: no hay cohortes anteriores. Lead Source y Empresa Procesable se muestran como criterio pero NO filtran (decisión Ramiro 2026-08-26: universo = taggeadas).",
+  },
+  backlog_sin_procesar: {
+    label: "Por procesar — evolución diaria",
+    flow: BACKLOG_FLOW,
+    table: "fm_backlog_snapshots",
+    column: "empresas (etapa_funnel = 'sin_prospectar')",
+    filter: "Misma definición que la fila “Sin procesar” del funnel: stage PRE-QM/Not Started/Ready/vacío y ninguna llamada ni WhatsApp de prospección registrado. Cuenta por empresa×campaña, como el funnel.",
+    update: "Foto horaria — el valor del día queda siendo el estado al cierre; el punto de hoy se calcula en vivo sobre los datos de la pestaña",
+    note: "Attio no guarda historia de stage: los puntos anteriores al 31-ago-2026 son una reconstrucción estimada (entrada = fecha_entrada_pre_qm; salida = primera actividad registrada o cambio de stage vía active_from), validada con ~2–4% de error contra los valores conocidos — por eso van punteados. De ahí en adelante son fotos reales.",
   },
   cohorte_por_procesar: {
     label: "Por procesar",

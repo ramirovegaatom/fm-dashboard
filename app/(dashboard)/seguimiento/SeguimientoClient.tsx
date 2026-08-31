@@ -2,8 +2,9 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { SeguimientoCompany, CohorteEntrega, WonByCloseDate } from "@/lib/supabase";
+import { SeguimientoCompany, CohorteEntrega, WonByCloseDate, BacklogPoint } from "@/lib/supabase";
 import { ReporteSemanal } from "./ReporteSemanal";
+import { BacklogChart } from "./BacklogChart";
 import { DateFilter, type DateRange } from "@/components/DateFilter";
 import { SIN_BDR, ETAPAS, ETAPAS_PROCESADAS, etapaRank, CompanyRow, MultiSelectFilter, type EtapaKey } from "./shared";
 
@@ -34,11 +35,13 @@ export function SeguimientoClient({
   companies,
   cohortes,
   wons,
+  backlog,
   hoy,
 }: {
   companies: SeguimientoCompany[];
   cohortes: CohorteEntrega[];
   wons: WonByCloseDate[];
+  backlog: BacklogPoint[];
   hoy: string; // YYYY-MM-DD en hora Argentina
 }) {
   // Multi-select de campañas: vacío = todas (José + Cande 2026-08-26).
@@ -98,6 +101,21 @@ export function SeguimientoClient({
     }
     return ids.size;
   }, [companies, campanasSel, bdrsSel, cohorteIds]);
+
+  // Punto de HOY de la gráfica de backlog (Camilo 2026-08-27): el "Sin procesar" en vivo,
+  // con los filtros de campaña y BDR pero SIN el de fechas (la gráfica no lo usa, igual que
+  // el reporte semanal). Se calcula acá para que coincida exacto con la fila del funnel
+  // cuando no hay filtro de fechas activo.
+  const backlogHoy = useMemo(
+    () =>
+      companies.filter(
+        (c) =>
+          c.etapa_funnel === "sin_prospectar" &&
+          (campanasSel.size === 0 || campanasSel.has(c.campana_evento)) &&
+          (bdrsSel.size === 0 || bdrsSel.has(c.assigned_bdr_name ?? SIN_BDR))
+      ).length,
+    [companies, campanasSel, bdrsSel]
+  );
 
   // Filtro por BDR aplicado a TODA la vista (funnel + scorecard), coherente con el resto.
   const filtered = useMemo(() => {
@@ -199,6 +217,10 @@ export function SeguimientoClient({
           {(dateRange.from || dateRange.to) ? " · por fecha del evento" : ""}
         </span>
       </div>
+
+      {/* Gráfica de backlog "Por procesar" (Camilo 2026-08-27): LO PRIMERO que se ve — el
+          número absoluto global, día por día, una sola línea. Usa los filtros de arriba. */}
+      <BacklogChart serie={backlog} campanasSel={campanasSel} bdrsSel={bdrsSel} hoy={hoy} hoyValor={backlogHoy} />
 
       {/* Reporte semanal de gestión por cohorte de entrega (José + Cande 2026-08-26): arriba del
           todo, debajo de los filtros porque los usa (campañas + BDRs; el de fechas no aplica). */}

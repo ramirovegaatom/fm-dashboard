@@ -527,6 +527,42 @@ export async function fetchCohortesEntrega(): Promise<CohorteEntrega[]> {
   return out;
 }
 
+// Backlog "Sin procesar" en el tiempo (fm_backlog_snapshots) — pedido Camilo 2026-08-27:
+// el número absoluto global por fecha ("hoy 345, mañana 320"). Una fila por día × campaña ×
+// BDR × etapa del funnel; la gráfica lee etapa_funnel='sin_prospectar'. origen distingue las
+// fotos reales del cron horario ('snapshot', desde 2026-08-31, queda el estado al cierre del
+// día) de la reconstrucción estimada hacia atrás ('reconstruido', 2026-07-06 → 2026-08-30).
+export type BacklogPoint = {
+  fecha: string; // YYYY-MM-DD (día en hora Argentina)
+  campana_evento: string;
+  assigned_bdr_name: string; // "" = sin BDR asignado
+  empresas: number; // filas empresa×campaña, como cuenta el funnel de Estado actual
+  origen: "snapshot" | "reconstruido";
+};
+
+export async function fetchBacklogSeries(): Promise<BacklogPoint[]> {
+  // Ventana rodante de 12 semanas: acota el payload (la tabla crece ~150 filas/día) y es
+  // más historia de la que se mira — la lectura de Camilo es semana a semana reciente.
+  const desde = new Date(Date.now() - 84 * 86_400_000).toISOString().slice(0, 10);
+  const PAGE = 1000;
+  const out: BacklogPoint[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data } = await supabase
+      .from("fm_backlog_snapshots")
+      .select("fecha, campana_evento, assigned_bdr_name, empresas, origen")
+      .eq("etapa_funnel", "sin_prospectar")
+      .gte("fecha", desde)
+      .order("fecha")
+      .order("campana_evento")
+      .order("assigned_bdr_name")
+      .range(from, from + PAGE - 1);
+    const rows = (data ?? []) as BacklogPoint[];
+    out.push(...rows);
+    if (rows.length < PAGE) break;
+  }
+  return out;
+}
+
 // Wons por fecha de cierre (fm_won_by_close_date) — misma vista que la pestaña Deals.
 export async function fetchWonByCloseDate(): Promise<WonByCloseDate[]> {
   const { data } = await supabase.from("fm_won_by_close_date").select("*").order("close_date", { ascending: false });
