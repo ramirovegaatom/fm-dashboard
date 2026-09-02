@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
+import { removeInvoicePdf } from "@/lib/invoice-storage";
 
 export async function saveAdSpend(eventId: string, amount: number) {
   const { error } = await supabase
@@ -177,36 +178,50 @@ async function recomputeCostAndIncome(eventId: string) {
   if (error) throw new Error(error.message);
 }
 
+// 2026-09-02: devuelven `{ success:false, error }` en vez de tirar — en producción Next
+// oculta el mensaje de las excepciones de server actions y el cliente veía un error genérico.
+export type InvoiceActionResult = { success: boolean; error?: string };
+
 export async function addEventInvoice(
   eventId: string,
   concepto: string,
   monto: number,
   pdfUrl: string | null,
   tipo: "gasto" | "ingreso" = "gasto"
-) {
+): Promise<InvoiceActionResult> {
   const c = concepto.trim();
-  if (!c) throw new Error("Falta el concepto");
-  if (Number.isNaN(monto) || monto < 0) throw new Error("Monto inválido");
-  const { error } = await supabase.from("fm_event_invoices").insert({
-    luma_event_id: eventId,
-    concepto: c,
-    monto,
-    pdf_url: pdfUrl,
-    tipo,
-    created_by: "dashboard",
-  });
-  if (error) throw new Error(error.message);
-  await recomputeCostAndIncome(eventId);
+  if (!c) return { success: false, error: "Falta el concepto" };
+  if (Number.isNaN(monto) || monto < 0) return { success: false, error: "Monto inválido" };
+  try {
+    const { error } = await supabase.from("fm_event_invoices").insert({
+      luma_event_id: eventId,
+      concepto: c,
+      monto,
+      pdf_url: pdfUrl,
+      tipo,
+      created_by: "dashboard",
+    });
+    if (error) return { success: false, error: `No se pudo guardar el ítem: ${error.message}` };
+    await recomputeCostAndIncome(eventId);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) };
+  }
   revalidatePath("/");
   revalidatePath("/partners");
   revalidatePath(`/event/${eventId}`);
   return { success: true };
 }
 
-export async function deleteEventInvoice(eventId: string, invoiceId: string) {
-  const { error } = await supabase.from("fm_event_invoices").delete().eq("id", invoiceId);
-  if (error) throw new Error(error.message);
-  await recomputeCostAndIncome(eventId);
+export async function deleteEventInvoice(eventId: string, invoiceId: string): Promise<InvoiceActionResult> {
+  try {
+    const { data: row } = await supabase.from("fm_event_invoices").select("pdf_url").eq("id", invoiceId).maybeSingle();
+    const { error } = await supabase.from("fm_event_invoices").delete().eq("id", invoiceId);
+    if (error) return { success: false, error: `No se pudo borrar el ítem: ${error.message}` };
+    await removeInvoicePdf((row as { pdf_url: string | null } | null)?.pdf_url);
+    await recomputeCostAndIncome(eventId);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) };
+  }
   revalidatePath("/");
   revalidatePath("/partners");
   revalidatePath(`/event/${eventId}`);
