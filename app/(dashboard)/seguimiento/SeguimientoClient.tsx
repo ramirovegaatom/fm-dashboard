@@ -17,6 +17,10 @@ import { SIN_BDR, ETAPAS, ETAPAS_PROCESADAS, etapaRank, CompanyRow, MultiSelectF
 // (3 llamadas + 2 WhatsApp o 2+3) cada uno. QM/Cliente valen sin circuito (badge "por stage");
 // Descalificada sin circuito cuenta en DropOff pero marcada; Procesada/Lost/RECYCLE sin
 // circuito caen a su etapa real con ⚠. Clientes (lifecycle Customer) excluidos en la vista SQL.
+// Orden de la pestaña (José 2026-09-03): (1) Reporte semanal de gestión con sus propios filtros
+// (región + período), (2) filtros del pipeline (campañas / BDRs / fechas) "post resumen semanal,
+// al inicio del pipeline", (3) gráfica de backlog, (4) funnel, (5) scorecard. Los filtros del
+// pipeline NO afectan al reporte semanal.
 const PREVIEW_LIMIT = 5;
 
 function bdrDetailHref(name: string) {
@@ -86,21 +90,6 @@ export function SeguimientoClient({
       .sort((a, b) => (a[0] === SIN_BDR ? 1 : 0) - (b[0] === SIN_BDR ? 1 : 0) || b[1] - a[1])
       .map(([name, count]) => ({ name, count }));
   }, [byCampana]);
-
-  // Empresas de la selección (campañas + BDRs, sin fecha del evento) que NO tienen fecha de
-  // entrada a PRE-QM y por eso no entran al reporte semanal. Hallazgo Spark Bogotá 2026-08-27:
-  // 33 de 275 (15 en QM SHOW) nunca pasaron por PRE-QM → el reporte mostraba 44 QMs y el
-  // funnel 67. Decisión Ramiro: mantener la fecha PRE-QM como definición y hacer visible el gap.
-  const cohorteIds = useMemo(() => new Set(cohortes.map((c) => c.attio_company_id)), [cohortes]);
-  const sinFechaEntrega = useMemo(() => {
-    const ids = new Set<string>();
-    for (const c of companies) {
-      if (campanasSel.size > 0 && !campanasSel.has(c.campana_evento)) continue;
-      if (bdrsSel.size > 0 && !bdrsSel.has(c.assigned_bdr_name ?? SIN_BDR)) continue;
-      if (!cohorteIds.has(c.attio_company_id)) ids.add(c.attio_company_id);
-    }
-    return ids.size;
-  }, [companies, campanasSel, bdrsSel, cohorteIds]);
 
   // Punto de HOY de la gráfica de backlog (Camilo 2026-08-27): el "Sin procesar" en vivo,
   // con los filtros de campaña y BDR pero SIN el de fechas (la gráfica no lo usa, igual que
@@ -189,6 +178,14 @@ export function SeguimientoClient({
         Las empresas que ya son clientes (Lifecycle Stage = <strong>Customer</strong>) no se cuentan.
       </div>
 
+      {/* Reporte semanal de gestión (José + Cande 2026-08-26; v2 José 2026-09-03): PRIMERO, con sus
+          propios filtros (región + período). Los filtros del pipeline de abajo no lo afectan. */}
+      <ReporteSemanal cohortes={cohortes} wons={wons} hoy={hoy} />
+
+      {/* Pipeline: filtros de campaña (multi) + BDRs (multi) + fechas (Q/mes/custom). José 2026-09-03:
+          van DESPUÉS del reporte semanal, al inicio del pipeline — aplican a la gráfica de backlog,
+          al funnel y al scorecard. */}
+      <div className="section-title" style={{ marginBottom: 8 }}>Pipeline · Estado actual</div>
       {/* Filtros: campaña (búsqueda) + BDRs (multi-select) + fechas (Q/mes/custom) */}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 24, alignItems: "center" }}>
         <MultiSelectFilter
@@ -218,13 +215,9 @@ export function SeguimientoClient({
         </span>
       </div>
 
-      {/* Gráfica de backlog "Por procesar" (Camilo 2026-08-27): LO PRIMERO que se ve — el
+      {/* Gráfica de backlog "Por procesar" (Camilo 2026-08-27): lo primero del pipeline — el
           número absoluto global, día por día, una sola línea. Usa los filtros de arriba. */}
       <BacklogChart serie={backlog} campanasSel={campanasSel} bdrsSel={bdrsSel} hoy={hoy} hoyValor={backlogHoy} />
-
-      {/* Reporte semanal de gestión por cohorte de entrega (José + Cande 2026-08-26): arriba del
-          todo, debajo de los filtros porque los usa (campañas + BDRs; el de fechas no aplica). */}
-      <ReporteSemanal cohortes={cohortes} wons={wons} campanasSel={campanasSel} bdrsSel={bdrsSel} hoy={hoy} sinFecha={sinFechaEntrega} />
 
       {/* Alerta: pool sin BDR asignado (Camilo 2026-07-23) */}
       {sinAsignar > 0 && (

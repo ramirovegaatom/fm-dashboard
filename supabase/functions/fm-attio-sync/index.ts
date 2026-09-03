@@ -307,6 +307,10 @@ function dealRowFromValues(idObj: Record<string, unknown>, vals: Record<string, 
     negociacion_de_terminos_completado: extractCheck(vals, "negociacion_de_terminos_completado"),
     created_at_attio: extractDate(vals, "created_at"),
     utm_id: extractVal(vals, "utm_id"),
+    // v61 (2026-09-03, José/Ramiro): checkbox "Upgrade / Add On" de Attio. Los upgrades de
+    // clientes existentes (Colectivo23, UVG Upgrade) NO cuentan como negocios ganados de
+    // evento — fm_won_by_close_date los excluye. Se guarda el flag, no se filtra acá.
+    upgrade_add_on: extractCheck(vals, "upgrade_add_on"),
     synced_at: new Date().toISOString(),
   };
 }

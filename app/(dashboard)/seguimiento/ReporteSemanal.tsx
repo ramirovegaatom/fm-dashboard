@@ -5,28 +5,37 @@ import { CohorteEntrega, WonByCloseDate } from "@/lib/supabase";
 import { MetricInfo } from "@/components/MetricInfo";
 import { attioCompanyUrl, attioDealUrl } from "@/lib/attio";
 import { formatCurrency } from "@/lib/format";
-import { SIN_BDR } from "./shared";
 
-// Reporte semanal de gestión (pedido José + Cande 2026-08-26, diseño a partir de su mock).
-// Vive ARRIBA de la pestaña "Estado actual" (Seguimiento) — pedido explícito; primero se
-// había puesto en Semanal. Respeta los filtros de campaña (multi) y BDR de la pestaña; el de
-// fechas (fecha del EVENTO) no aplica: el eje de este reporte es la semana de ENTREGA.
-// Eje = COHORTE DE ENTREGA: la semana de una empresa es la de su fecha_entrada_pre_qm (Attio:
-// última entrada al stage PRE-QM). Las métricas son el estado ACTUAL de cada cohorte según el
-// Outbound Stage — Attio no guarda historia de stage, así que "qué pasó durante la semana X"
-// no existe hacia atrás; esto responde "cómo está hoy lo que entregamos la semana X".
-// Regla de alerta (José/Cande): una empresa que lleva más de 7 días desde su entrada sin salir
-// de PRE-QM está vencida → semáforo rojo. Los Wons van aparte, por FECHA DE CIERRE del deal
-// (no por cohorte) — es el "apartado de negocios ganados" que pidieron en el resumen.
-// Decisiones Ramiro 2026-08-26: QM incluye SHOW / NO SHOW / Cliente; universo = taggeadas con
-// fecha de entrada (Lead Source y Empresa procesable se muestran como criterio, no filtran).
+// Reporte semanal de gestión (pedido José + Cande 2026-08-26; v2 José 2026-09-03).
+// Vive ARRIBA de la pestaña "Estado actual" (Seguimiento), ANTES de los filtros del pipeline:
+// José pidió que el filtro de campañas quede "post resumen semanal, al inicio del pipeline",
+// así que este reporte NO usa los filtros de campaña/BDR/fechas de la pestaña — tiene los suyos:
+// región (Cono Norte / Cono Sur / Brasil) y período (H1, H2, Q1–Q4, Total).
+// Eje (José 2026-09-03): la semana de una empresa es la de la FECHA DEL ÚLTIMO EVENTO/CAMPAÑA
+// al que está taggeada — "Entregadas" no considera ningún atributo adicional (antes era la
+// fecha de entrada a PRE-QM, que es de la empresa y no del evento). Las métricas son el estado
+// ACTUAL de cada cohorte según el Outbound Stage: Attio no guarda historia de stage.
+// Estados del reporte (José 2026-09-03): Entregadas, Procesando, Procesadas, QMs agendadas,
+// Descalificadas y Negocios ganados. "Por procesar" y "Otros" (Recycle/Lost) NO se muestran —
+// siguen dentro de Entregadas. Se agregan las conversiones de la semana (% entre etapas).
+// Los Wons van por FECHA DE CIERRE del deal, sin upgrades (Upgrade / Add On excluidos en la vista).
 
-const PLAZO_DIAS = 7;
 const FILAS_POR_PAGINA = 10;
 const SPARK_SEMANAS = 10;
 
 type EtapaKey = CohorteEntrega["etapa_reporte"];
-type MetricKey = "entregadas" | EtapaKey | "wons";
+type MetricKey = "entregadas" | "procesando" | "procesada" | "qm" | "descartada" | "wons";
+type Region = "todos" | "Norte" | "Sur" | "Brasil";
+type Periodo = "total" | "H1" | "H2" | "Q1" | "Q2" | "Q3" | "Q4";
+
+const REGIONES: { key: Region; label: string }[] = [
+  { key: "todos", label: "Todos" },
+  { key: "Norte", label: "Cono Norte" },
+  { key: "Sur", label: "Cono Sur" },
+  { key: "Brasil", label: "Brasil" },
+];
+const REGION_LABEL: Record<string, string> = { Norte: "Cono Norte", Sur: "Cono Sur", Brasil: "Brasil" };
+const PERIODOS: Periodo[] = ["total", "H1", "H2", "Q1", "Q2", "Q3", "Q4"];
 
 type MetricDef = {
   key: MetricKey;
@@ -36,7 +45,6 @@ type MetricDef = {
   lineage: string;
   criterios: [string, string][];
   disclaimer?: string;
-  card: boolean; // aparece como KPI card (otros solo va en la tabla)
 };
 
 const METRICAS: MetricDef[] = [
@@ -48,25 +56,9 @@ const METRICAS: MetricDef[] = [
     lineage: "cohorte_entregadas",
     criterios: [
       ["Campaña/Evento", "Sí (empresa taggeada a un evento)"],
-      ["Fecha entrada PRE-QM", "Define la semana de entrega (lunes a domingo)"],
-      ["Lead Source (referencia)", "Field Marketing Latam / Brasil"],
-      ["Empresa procesable (referencia)", "L2 - PreQM"],
+      ["Semana", "La de la fecha del ÚLTIMO evento/campaña de la empresa (lunes a domingo)"],
     ],
-    disclaimer: "Lead Source y Empresa procesable se muestran como referencia de la definición original; el universo es toda empresa taggeada con fecha de entrada (decisión 2026-08-26). Una empresa cuenta una sola vez aunque tenga varios tags.",
-    card: true,
-  },
-  {
-    key: "por_procesar",
-    label: "Por procesar",
-    color: "var(--fg-status-error)",
-    tag: "Sin mover",
-    lineage: "cohorte_por_procesar",
-    criterios: [
-      ["Outbound Stage", "PRE-QM - Oportunidad Marketing (también Not Started, Ready o vacío)"],
-      ["Regla de alerta", `Más de ${PLAZO_DIAS} días desde la entrada a PRE-QM sin cambiar de stage`],
-    ],
-    disclaimer: `Semáforo rojo si la empresa lleva más de ${PLAZO_DIAS} días desde su entrada sin cambiar de stage. Requiere acción del BDR asignado.`,
-    card: true,
+    disclaimer: "Ningún otro atributo filtra (José 2026-09-03). Una empresa cuenta una sola vez aunque tenga varios tags: cae en la semana de su evento más reciente. Las que siguen sin procesar o quedaron en Recycle/Lost están dentro de Entregadas pero no tienen tarjeta propia.",
   },
   {
     key: "procesando",
@@ -76,7 +68,6 @@ const METRICAS: MetricDef[] = [
     lineage: "cohorte_procesando",
     criterios: [["Outbound Stage", "Procesando (también Con contacto)"]],
     disclaimer: "Se marca aparte cuántas figuran Procesando sin ninguna llamada ni WhatsApp registrado.",
-    card: true,
   },
   {
     key: "procesada",
@@ -85,36 +76,25 @@ const METRICAS: MetricDef[] = [
     tag: "Circuito terminado",
     lineage: "cohorte_procesadas",
     criterios: [["Outbound Stage", "Procesada"]],
-    card: true,
+    disclaimer: "Terminaron el circuito sin respuesta positiva. Las que llegaron a QM cuentan en QMs agendadas.",
   },
   {
     key: "qm",
-    label: "QMs generados",
+    label: "QMs agendadas",
     color: "var(--fg-status-success)",
     tag: "Respuesta positiva",
     lineage: "cohorte_qm",
     criterios: [["Outbound Stage", "QM AGENDADA, QM SHOW, QM NO SHOW o Cliente"]],
     disclaimer: "Cuenta toda empresa que llegó a QM, esté donde esté hoy — así una QM no desaparece del reporte cuando ocurre la reunión.",
-    card: true,
   },
   {
     key: "descartada",
-    label: "Descartadas (no ICP)",
+    label: "Descalificadas",
     color: "var(--fg-status-warning)",
     tag: "No calificadas",
     lineage: "cohorte_descartadas",
     criterios: [["Outbound Stage", "Descalificada"]],
-    disclaimer: "Recycle y Lost no cuentan como descartadas: van a “Otros” para que la suma cierre contra Entregadas.",
-    card: true,
-  },
-  {
-    key: "otros",
-    label: "Otros (Recycle / Lost)",
-    color: "var(--fg-quaternary)",
-    tag: "Fuera del funnel",
-    lineage: "cohorte_descartadas",
-    criterios: [["Outbound Stage", "RECYCLE o Lost"]],
-    card: false,
+    disclaimer: "Recycle y Lost no cuentan como descalificadas.",
   },
   {
     key: "wons",
@@ -125,10 +105,10 @@ const METRICAS: MetricDef[] = [
     criterios: [
       ["Deal stage", "Won 🎉"],
       ["Campaña/Evento del deal", "No vacío"],
+      ["Upgrade / Add On", "No (los upgrades de clientes existentes no cuentan)"],
       ["Semana", "Fecha de cierre del deal (close_date)"],
     ],
-    disclaimer: "Se ubican por fecha de cierre del deal, no por la cohorte de entrega de la empresa. Los deals de evento sin campaña atribuida (cola de revisión en Deals) no cuentan hasta atribuirse.",
-    card: true,
+    disclaimer: "Se ubican por fecha de cierre del deal, no por la semana del evento de la empresa. Los deals de evento sin campaña atribuida (cola de revisión en Deals) no cuentan hasta atribuirse.",
   },
 ];
 
@@ -137,13 +117,20 @@ type Semana = {
   rows: CohorteEntrega[];
   counts: Record<EtapaKey, number>;
   entregadas: number;
-  vencidas: number; // por_procesar con más de PLAZO_DIAS días desde la entrada
-  maxDias: number; // días de la entrada más vieja vencida
-  ppSinActividad: number;
   procSinActividad: number;
   wons: WonByCloseDate[];
   mrr: number;
 };
+
+type Conversion = { key: string; label: string; detalle: string; num: (s: Semana) => number; den: (s: Semana) => number };
+
+// "Procesadas" en las conversiones = terminaron el procesamiento (Procesadas + QMs + Descalificadas).
+const terminadas = (s: Semana) => s.counts.procesada + s.counts.qm + s.counts.descartada;
+const CONVERSIONES: Conversion[] = [
+  { key: "c_proc", label: "% Entregadas → Procesadas", detalle: "terminaron el circuito (Procesadas + QMs + Descalificadas) sobre Entregadas", num: terminadas, den: (s) => s.entregadas },
+  { key: "c_qm", label: "% Procesadas → QM agendadas", detalle: "QMs agendadas sobre las que terminaron el circuito", num: (s) => s.counts.qm, den: terminadas },
+  { key: "c_won", label: "% QM agendadas → Won", detalle: "negocios ganados (por cierre en la semana) sobre QMs agendadas", num: (s) => s.wons.length, den: (s) => s.counts.qm },
+];
 
 function mondayOf(fecha: string): string {
   const d = new Date(fecha + "T00:00:00Z");
@@ -156,9 +143,6 @@ function isoAddDays(iso: string, dias: number): string {
   d.setUTCDate(d.getUTCDate() + dias);
   return d.toISOString().slice(0, 10);
 }
-function diasEntre(desde: string, hasta: string): number {
-  return Math.floor((new Date(hasta + "T00:00:00Z").getTime() - new Date(desde + "T00:00:00Z").getTime()) / 86_400_000);
-}
 function fmtDia(iso: string) {
   return new Date(iso + "T12:00:00Z").toLocaleDateString("es-AR", { day: "2-digit", month: "short", timeZone: "UTC" });
 }
@@ -168,47 +152,59 @@ function fmtRango(semana: string) {
 function fmtFecha(iso: string) {
   return new Date(iso + "T12:00:00Z").toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
 }
-function campanaDelDeal(w: WonByCloseDate, campanas: Set<string>) {
-  return (w.campana_evento ?? "").split(",").map((s) => s.trim()).some((k) => campanas.has(k));
+function pct(num: number, den: number): number | null {
+  return den > 0 ? Math.round((num / den) * 1000) / 10 : null;
+}
+function fmtPct(v: number | null) {
+  return v === null ? "—" : `${v.toLocaleString("es-AR", { maximumFractionDigits: 1 })}%`;
+}
+// Rango [desde, hasta] (YYYY-MM-DD) del período dentro del año de "hoy".
+function rangoPeriodo(p: Periodo, year: number): [string, string] | null {
+  const y = String(year);
+  switch (p) {
+    case "total": return null;
+    case "H1": return [`${y}-01-01`, `${y}-06-30`];
+    case "H2": return [`${y}-07-01`, `${y}-12-31`];
+    case "Q1": return [`${y}-01-01`, `${y}-03-31`];
+    case "Q2": return [`${y}-04-01`, `${y}-06-30`];
+    case "Q3": return [`${y}-07-01`, `${y}-09-30`];
+    case "Q4": return [`${y}-10-01`, `${y}-12-31`];
+  }
 }
 
 export function ReporteSemanal({
   cohortes,
   wons,
-  campanasSel,
-  bdrsSel,
   hoy,
-  sinFecha,
 }: {
   cohortes: CohorteEntrega[];
   wons: WonByCloseDate[];
-  campanasSel: Set<string>; // vacío = todas (multi-select de Estado actual)
-  bdrsSel: Set<string>; // vacío = todos (SIN_BDR = sin asignar)
   hoy: string; // YYYY-MM-DD en hora Argentina (viene del server)
-  sinFecha: number; // empresas de la selección sin fecha de entrada a PRE-QM (no entran al reporte)
 }) {
   const semanaActual = useMemo(() => mondayOf(hoy), [hoy]);
+  const year = Number(hoy.slice(0, 4));
 
-  const filtradas = useMemo(
-    () =>
-      cohortes.filter(
-        (c) =>
-          (campanasSel.size === 0 || c.campanas.some((k) => campanasSel.has(k))) &&
-          (bdrsSel.size === 0 || bdrsSel.has(c.assigned_bdr_name ?? SIN_BDR))
-      ),
-    [cohortes, campanasSel, bdrsSel]
+  const [region, setRegion] = useState<Region>("todos");
+  const [periodo, setPeriodo] = useState<Periodo>("total");
+
+  // Filtro de región: territorio del ÚLTIMO evento de la empresa; los deals, del evento del deal.
+  const porRegion = useMemo(
+    () => (region === "todos" ? cohortes : cohortes.filter((c) => c.territorio === region)),
+    [cohortes, region]
   );
-  // Los deals no tienen BDR: solo filtran por campaña.
+  const sinRegion = useMemo(() => (region === "todos" ? 0 : cohortes.filter((c) => !c.territorio).length), [cohortes, region]);
+  const sinFecha = useMemo(() => porRegion.filter((c) => !c.semana_entrega).length, [porRegion]);
   const wonsFiltrados = useMemo(
-    () => wons.filter((w) => w.close_date && w.close_date.slice(0, 10) <= hoy && (campanasSel.size === 0 || campanaDelDeal(w, campanasSel))),
-    [wons, campanasSel, hoy]
+    () => wons.filter((w) => w.close_date && w.close_date.slice(0, 10) <= hoy && (region === "todos" || w.territorio === region)),
+    [wons, region, hoy]
   );
 
-  // Todas las semanas desde la primera entrega hasta la actual (incluye semanas sin entrega:
-  // "el procesamiento continúa" — y ahí igual pueden caer wons por cierre).
-  const semanas = useMemo<Semana[]>(() => {
+  // Todas las semanas desde el primer evento hasta la actual (o el último evento, si es futuro),
+  // incluyendo semanas sin entrega — ahí igual pueden caer wons por cierre.
+  const semanasAll = useMemo<Semana[]>(() => {
     const byWeek = new Map<string, CohorteEntrega[]>();
-    for (const c of filtradas) {
+    for (const c of porRegion) {
+      if (!c.semana_entrega) continue;
       const list = byWeek.get(c.semana_entrega) ?? [];
       list.push(c);
       byWeek.set(c.semana_entrega, list);
@@ -224,17 +220,13 @@ export function ReporteSemanal({
     if (!keys.length) return [];
     const out: Semana[] = [];
     let cursor = keys[0];
-    while (cursor <= semanaActual) {
+    const fin = keys[keys.length - 1] > semanaActual ? keys[keys.length - 1] : semanaActual;
+    while (cursor <= fin) {
       const rows = byWeek.get(cursor) ?? [];
       const counts: Record<EtapaKey, number> = { por_procesar: 0, procesando: 0, procesada: 0, qm: 0, descartada: 0, otros: 0 };
-      let vencidas = 0, maxDias = 0, ppSinActividad = 0, procSinActividad = 0;
+      let procSinActividad = 0;
       for (const r of rows) {
         counts[r.etapa_reporte]++;
-        if (r.etapa_reporte === "por_procesar") {
-          const dias = diasEntre(r.fecha_entrada, hoy);
-          if (dias > PLAZO_DIAS) { vencidas++; if (dias > maxDias) maxDias = dias; }
-          if (r.actividades === 0) ppSinActividad++;
-        }
         if (r.etapa_reporte === "procesando" && r.actividades === 0) procSinActividad++;
       }
       const ws = wonsByWeek.get(cursor) ?? [];
@@ -243,9 +235,6 @@ export function ReporteSemanal({
         rows,
         counts,
         entregadas: rows.length,
-        vencidas,
-        maxDias,
-        ppSinActividad,
         procSinActividad,
         wons: ws,
         mrr: ws.reduce((acc, w) => acc + Number(w.value_amount ?? 0), 0),
@@ -253,7 +242,19 @@ export function ReporteSemanal({
       cursor = isoAddDays(cursor, 7);
     }
     return out;
-  }, [filtradas, wonsFiltrados, semanaActual, hoy]);
+  }, [porRegion, wonsFiltrados, semanaActual]);
+
+  // Período (H1/H2/Qn del año en curso): se quedan las semanas que se solapan con el rango.
+  const semanas = useMemo(() => {
+    const r = rangoPeriodo(periodo, year);
+    if (!r) return semanasAll;
+    return semanasAll.filter((s) => isoAddDays(s.semana, 6) >= r[0] && s.semana <= r[1]);
+  }, [semanasAll, periodo, year]);
+  const prevMap = useMemo(() => {
+    const m = new Map<string, Semana>();
+    for (let i = 1; i < semanasAll.length; i++) m.set(semanasAll[i].semana, semanasAll[i - 1]);
+    return m;
+  }, [semanasAll]);
 
   // Default: la última semana CON entrega (la actual suele estar vacía o a medio cargar).
   const defaultIdx = useMemo(() => {
@@ -264,6 +265,8 @@ export function ReporteSemanal({
   const weekIdx = weekIdxSel !== null && weekIdxSel < semanas.length ? weekIdxSel : defaultIdx;
   const [metric, setMetric] = useState<MetricKey>("entregadas");
   const [pagina, setPagina] = useState(0);
+  // Series visibles en "Evolución semanal" (José 2026-09-03: elegir cuáles métricas se ven).
+  const [visibles, setVisibles] = useState<Set<MetricKey>>(() => new Set(METRICAS.map((m) => m.key)));
   const pillsRef = useRef<HTMLDivElement>(null);
 
   // Pills: arrancan scrolleadas al final (las semanas recientes).
@@ -273,7 +276,7 @@ export function ReporteSemanal({
   }, [semanas.length]);
 
   const w = semanas[weekIdx];
-  const prev = weekIdx > 0 ? semanas[weekIdx - 1] : null;
+  const prev = w ? prevMap.get(w.semana) ?? null : null;
 
   function valor(s: Semana, k: MetricKey): number {
     if (k === "entregadas") return s.entregadas;
@@ -291,37 +294,65 @@ export function ReporteSemanal({
   const detalle = useMemo(() => {
     if (!w) return [] as CohorteEntrega[];
     const list = metric === "entregadas" || metric === "wons" ? w.rows : w.rows.filter((r) => r.etapa_reporte === metric);
-    return [...list].sort((a, b) => a.fecha_entrada.localeCompare(b.fecha_entrada) || (a.company_name ?? "").localeCompare(b.company_name ?? ""));
+    return [...list].sort((a, b) => (a.company_name ?? "").localeCompare(b.company_name ?? ""));
   }, [w, metric]);
   const detallePagina = detalle.slice(pagina * FILAS_POR_PAGINA, (pagina + 1) * FILAS_POR_PAGINA);
   const totalPaginas = Math.max(1, Math.ceil(detalle.length / FILAS_POR_PAGINA));
 
   function pickWeek(i: number) { setWeekIdx(i); setPagina(0); }
   function pickMetric(k: MetricKey) { setMetric(k); setPagina(0); }
+  function pickRegion(r: Region) { setRegion(r); setWeekIdx(null); setPagina(0); }
+  function pickPeriodo(p: Periodo) { setPeriodo(p); setWeekIdx(null); setPagina(0); }
+  function toggleSerie(k: MetricKey) {
+    setVisibles((cur) => {
+      const next = new Set(cur);
+      if (next.has(k)) { if (next.size > 1) next.delete(k); } else next.add(k);
+      return next;
+    });
+  }
+
+  const filtros = (
+    <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+      <PillGroup
+        items={REGIONES.map((r) => ({ key: r.key, label: r.label }))}
+        active={region}
+        onPick={(k) => pickRegion(k as Region)}
+        title="Región del último evento de la empresa (y del evento del deal para los negocios ganados)"
+      />
+      <PillGroup
+        items={PERIODOS.map((p) => ({ key: p, label: p === "total" ? "Total" : `${p} ${year}` }))}
+        active={periodo}
+        onPick={(k) => pickPeriodo(k as Periodo)}
+        title="Período: semanas cuyo evento cae en el rango (año en curso)"
+        compact
+      />
+    </div>
+  );
 
   if (!semanas.length || !w) {
     return (
       <div className="card" style={{ marginBottom: 24 }}>
         <div className="section-title" style={{ marginBottom: 6 }}>Reporte semanal de gestión</div>
+        {filtros}
         <div className="text-muted" style={{ fontSize: 12 }}>
-          Sin empresas con fecha de entrada a PRE-QM para la selección. El atributo <code>fecha_entrada_pre_qm</code> de
-          Attio lo llena un trigger al entrar al stage — las empresas anteriores a ese trigger no tienen cohorte.
+          Sin empresas taggeadas a eventos con fecha para esta selección
+          {region !== "todos" ? ` en ${REGION_LABEL[region]}` : ""}{periodo !== "total" ? ` · ${periodo} ${year}` : ""}.
         </div>
       </div>
     );
   }
 
   const enCurso = w.semana === semanaActual;
-  const overdue = w.vencidas > 0;
+  const series = METRICAS.filter((m) => visibles.has(m.key));
 
   return (
     <div style={{ marginBottom: 32 }}>
       {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12, flexWrap: "wrap", marginBottom: 8 }}>
         <div>
           <div className="section-title" style={{ marginBottom: 2 }}>Reporte semanal de gestión</div>
           <div className="text-muted" style={{ fontSize: 11 }}>
-            Cómo está HOY cada entrega semanal de empresas (semana = entrada a PRE-QM). Los negocios ganados van por fecha de cierre.
+            Cómo está HOY cada entrega semanal (semana = fecha del <strong>último evento/campaña</strong> de la empresa). Los negocios ganados van por fecha de cierre, sin upgrades.
           </div>
         </div>
         <div className="text-muted" style={{ fontSize: 11, textAlign: "right" }}>
@@ -329,19 +360,19 @@ export function ReporteSemanal({
         </div>
       </div>
 
+      {/* Filtros propios: región + período */}
+      {filtros}
+
       {/* Semanas */}
-      {/* overflow-x:auto también recorta en vertical: el padding superior/derecho deja lugar al badge "!" (top/right -5). */}
       <div ref={pillsRef} style={{ display: "flex", gap: 6, overflowX: "auto", padding: "6px 8px 6px 0", marginBottom: 8 }}>
         {semanas.map((s, i) => {
           const active = i === weekIdx;
-          const alerta = s.vencidas > 0;
           return (
             <button
               key={s.semana}
               onClick={() => pickWeek(i)}
               title={s.entregadas > 0 ? `${s.entregadas} empresas entregadas` : "Sin entrega esta semana"}
               style={{
-                position: "relative",
                 flexShrink: 0,
                 padding: "5px 12px",
                 borderRadius: 8,
@@ -357,53 +388,18 @@ export function ReporteSemanal({
               {s.entregadas > 0 && (
                 <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, opacity: 0.75 }}>{s.entregadas}</span>
               )}
-              {alerta && (
-                <span
-                  style={{
-                    position: "absolute", top: -5, right: -5,
-                    background: "var(--fg-status-error)", color: "var(--bg-primary)",
-                    fontSize: 9, fontWeight: 700, borderRadius: 10, padding: "1px 5px", lineHeight: "12px",
-                  }}
-                >
-                  !
-                </span>
-              )}
             </button>
           );
         })}
       </div>
 
-      {/* Alerta */}
-      {overdue && (
-        <div
-          className="card"
-          style={{
-            display: "flex", gap: 10, alignItems: "flex-start", marginBottom: 12, fontSize: 12,
-            border: "1px solid var(--fg-status-error)", background: "var(--bg-status-error)", color: "var(--fg-primary)",
-          }}
-        >
-          <span style={{ fontSize: 14, lineHeight: 1 }}>🔴</span>
-          <div>
-            <strong>{w.vencidas} empresa{w.vencidas === 1 ? "" : "s"}</strong> de la entrega del {fmtRango(w.semana)} llevan más de{" "}
-            <strong>{PLAZO_DIAS} días</strong> sin salir de PRE-QM (la más vieja: <strong>{w.maxDias} días</strong>). Requiere acción del BDR asignado —{" "}
-            <button
-              onClick={() => pickMetric("por_procesar")}
-              style={{ all: "unset", cursor: "pointer", fontWeight: 700, color: "var(--fg-status-error)", textDecoration: "underline" }}
-            >
-              ver cuáles
-            </button>
-            .
-          </div>
-        </div>
-      )}
-
-      {/* Chip de entrega + gap de cobertura */}
+      {/* Chip de entrega + avisos de cobertura */}
       <div style={{ marginBottom: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         {w.entregadas > 0 ? (
           <span className="badge" style={{ background: "var(--bg-status-info)", color: "var(--fg-status-info)", fontSize: 11 }}>
             📦 Entrega: <strong style={{ margin: "0 4px" }}>{w.entregadas} empresas</strong> — {fmtRango(w.semana)}
             {enCurso ? " · semana en curso" : ""}
-            {!overdue && !enCurso && w.counts.por_procesar > 0 ? ` · ${w.counts.por_procesar} dentro del plazo de ${PLAZO_DIAS} días` : ""}
+            {region !== "todos" ? ` · ${REGION_LABEL[region]}` : ""}
           </span>
         ) : (
           <span className="badge" style={{ background: "var(--bg-secondary)", color: "var(--fg-quaternary)", fontSize: 11 }}>
@@ -414,27 +410,35 @@ export function ReporteSemanal({
           <span
             className="badge"
             style={{ background: "var(--bg-status-warning)", color: "var(--fg-status-warning)", fontSize: 11 }}
-            title="Empresas de la selección (mismo universo que el funnel de abajo) que nunca pasaron por el stage PRE-QM en Attio, o pasaron antes de que existiera el trigger que registra la fecha. No tienen semana de entrega y no cuentan en ninguna métrica del reporte."
+            title="Empresas taggeadas a campañas sin fecha de evento mapeada ni fecha en el nombre de la campaña. No tienen semana y no cuentan en el reporte."
           >
-            ⚠ {sinFecha} empresa{sinFecha === 1 ? "" : "s"} de la selección sin fecha de entrada a PRE-QM — no entran al reporte
+            ⚠ {sinFecha} empresa{sinFecha === 1 ? "" : "s"} sin fecha de evento — no entran
+          </span>
+        )}
+        {sinRegion > 0 && (
+          <span
+            className="badge"
+            style={{ background: "var(--bg-secondary)", color: "var(--fg-quaternary)", fontSize: 11 }}
+            title="Empresas cuyo evento no tiene país ni territorio cargado (webinars sin país, etc.). Solo se ven con “Todos”. Se corrige cargando el país del evento en Calendario / Third party."
+          >
+            {sinRegion} empresa{sinRegion === 1 ? "" : "s"} sin región — solo en “Todos”
           </span>
         )}
       </div>
 
       {/* KPI cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, marginBottom: 12 }}>
-        {METRICAS.filter((m) => m.card).map((m) => {
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, marginBottom: 10 }}>
+        {METRICAS.map((m) => {
           const val = valor(w, m.key);
           const d = delta(m.key);
-          const alerta = m.key === "por_procesar" && overdue;
           const selected = m.key === metric;
           const dim = m.key !== "wons" && w.entregadas === 0;
           const sparkFrom = Math.max(0, semanas.length - SPARK_SEMANAS);
           const serie = semanas.slice(sparkFrom).map((s) => valor(s, m.key));
           const sub =
-            m.key === "por_procesar" && w.ppSinActividad > 0 ? `${w.ppSinActividad} sin ninguna actividad`
-            : m.key === "procesando" && w.procSinActividad > 0 ? `${w.procSinActividad} sin actividad registrada`
+            m.key === "procesando" && w.procSinActividad > 0 ? `${w.procSinActividad} sin actividad registrada`
             : m.key === "wons" && w.mrr > 0 ? formatCurrency(w.mrr)
+            : m.key !== "entregadas" && m.key !== "wons" && w.entregadas > 0 && val > 0 ? `${fmtPct(pct(val, w.entregadas))} de entregadas`
             : null;
           return (
             <button
@@ -445,8 +449,8 @@ export function ReporteSemanal({
                 textAlign: "left",
                 cursor: "pointer",
                 padding: "12px 14px",
-                border: `1.5px solid ${selected ? m.color : alerta ? "var(--fg-status-error)" : "var(--border-tertiary)"}`,
-                background: alerta ? "var(--bg-status-error)" : selected ? "var(--bg-secondary)" : "var(--bg-primary)",
+                border: `1.5px solid ${selected ? m.color : "var(--border-tertiary)"}`,
+                background: selected ? "var(--bg-secondary)" : "var(--bg-primary)",
                 opacity: dim ? 0.55 : 1,
               }}
             >
@@ -457,7 +461,7 @@ export function ReporteSemanal({
               </div>
               <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 6 }}>
                 <div>
-                  <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1, color: alerta ? "var(--fg-status-error)" : "var(--fg-primary)" }}>
+                  <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1, color: "var(--fg-primary)" }}>
                     {val || "—"}
                   </div>
                   {d !== null && (
@@ -465,7 +469,6 @@ export function ReporteSemanal({
                       {d > 0 ? `↑ ${d}` : d < 0 ? `↓ ${Math.abs(d)}` : "= igual"} <span className="text-muted">vs sem. anterior</span>
                     </div>
                   )}
-                  {alerta && <div style={{ fontSize: 10, color: "var(--fg-status-error)", fontWeight: 700, marginTop: 3 }}>⚠ {w.vencidas} vencidas</div>}
                   {sub && <div className="text-muted" style={{ fontSize: 10, marginTop: 3 }}>{sub}</div>}
                 </div>
                 <Sparkline values={serie} color={m.color} highlightIdx={weekIdx - sparkFrom} />
@@ -473,6 +476,37 @@ export function ReporteSemanal({
             </button>
           );
         })}
+      </div>
+
+      {/* Conversión de la semana (José 2026-09-03) */}
+      <div className="card" style={{ marginBottom: 12, padding: "10px 14px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12, fontWeight: 700 }}>Conversión · {fmtRango(w.semana)}{enCurso ? " (semana en curso)" : ""}</span>
+          <span className="text-muted" style={{ fontSize: 10 }}>
+            estado actual de la entrega de la semana; “Procesadas” acá = terminaron el circuito (Procesadas + QMs + Descalificadas)
+          </span>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 8 }}>
+          {CONVERSIONES.map((c) => {
+            const v = pct(c.num(w), c.den(w));
+            const pv = prev ? pct(c.num(prev), c.den(prev)) : null;
+            const dpp = v !== null && pv !== null ? Math.round((v - pv) * 10) / 10 : null;
+            return (
+              <div key={c.key} style={{ display: "flex", flexDirection: "column", gap: 2 }} title={c.detalle}>
+                <span className="text-muted" style={{ fontSize: 10, fontStyle: "italic" }}>{c.label}</span>
+                <span style={{ fontSize: 18, fontWeight: 700, color: v === null ? "var(--fg-quaternary)" : "var(--fg-primary)" }}>
+                  {fmtPct(v)}
+                  <span className="text-muted" style={{ fontSize: 10, fontWeight: 500, marginLeft: 6 }}>{c.num(w)} / {c.den(w)}</span>
+                </span>
+                {dpp !== null && (
+                  <span style={{ fontSize: 10, color: dpp > 0 ? "var(--fg-status-success)" : dpp < 0 ? "var(--fg-status-error)" : "var(--fg-quaternary)" }}>
+                    {dpp > 0 ? `↑ ${dpp}` : dpp < 0 ? `↓ ${Math.abs(dpp)}` : "="} pp <span className="text-muted">vs sem. anterior</span>
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* Criterios de la métrica seleccionada */}
@@ -503,7 +537,7 @@ export function ReporteSemanal({
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                 <thead>
                   <tr>
-                    {["Deal", "Empresa", "Campaña", "Cierre", "MRR"].map((h) => (
+                    {["Deal", "Empresa", "Campaña", "Región", "Cierre", "MRR"].map((h) => (
                       <th key={h} className="text-muted" style={thStyle}>{h}</th>
                     ))}
                   </tr>
@@ -518,6 +552,7 @@ export function ReporteSemanal({
                       </td>
                       <td style={tdStyle}>{d.company_name ?? "—"}</td>
                       <td style={{ ...tdStyle, color: "var(--fg-secondary)" }}>{d.campana_evento ?? "—"}</td>
+                      <td style={{ ...tdStyle, color: "var(--fg-secondary)" }}>{d.territorio ? REGION_LABEL[d.territorio] ?? d.territorio : "—"}</td>
                       <td style={tdStyle}>{fmtFecha(d.close_date.slice(0, 10))}</td>
                       <td style={{ ...tdStyle, fontWeight: 700, color: "var(--fg-status-success)" }}>{formatCurrency(Number(d.value_amount ?? 0))}</td>
                     </tr>
@@ -532,16 +567,15 @@ export function ReporteSemanal({
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                 <thead>
                   <tr>
-                    {["Empresa", "Campaña", "Stage", "BDR", "Entrada", "Act."].map((h) => (
+                    {["Empresa", "Campaña (último evento)", "Evento", "Región", "Stage", "BDR", "Act."].map((h) => (
                       <th key={h} className="text-muted" style={thStyle}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {detallePagina.map((c) => {
-                    const dias = diasEntre(c.fecha_entrada, hoy);
-                    const vencida = c.etapa_reporte === "por_procesar" && dias > PLAZO_DIAS;
                     const url = attioCompanyUrl(c.attio_company_id);
+                    const otras = c.campanas.filter((k) => k !== c.campana_ultima);
                     return (
                       <tr key={c.attio_company_id} style={{ borderTop: "1px solid var(--border-tertiary)" }}>
                         <td style={tdStyle}>
@@ -551,19 +585,24 @@ export function ReporteSemanal({
                             </a>
                           ) : (c.company_name ?? c.attio_company_id)}
                         </td>
-                        <td style={{ ...tdStyle, color: "var(--fg-secondary)", maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={c.campanas.join(", ")}>
-                          {c.campanas.join(", ")}
+                        <td
+                          style={{ ...tdStyle, color: "var(--fg-secondary)", maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                          title={otras.length ? `También taggeada a: ${otras.join(", ")}` : c.campana_ultima ?? ""}
+                        >
+                          {c.campana_ultima ?? "—"}
+                          {otras.length > 0 && <span className="text-muted" style={{ fontSize: 10, marginLeft: 4 }}>+{otras.length}</span>}
+                        </td>
+                        <td style={tdStyle} title={c.fecha_origen === "nombre" ? "Fecha tomada del nombre de la campaña (el evento no tiene fecha mapeada)" : undefined}>
+                          {c.evento_fecha ? fmtDia(c.evento_fecha) : "—"}
+                          {c.fecha_origen === "nombre" && <span className="text-muted" style={{ fontSize: 10, marginLeft: 3 }}>≈</span>}
+                        </td>
+                        <td style={{ ...tdStyle, color: c.territorio ? "var(--fg-secondary)" : "var(--fg-quaternary)" }} title={c.territorio_origen && c.territorio_origen !== "evento" ? `Región inferida por ${c.territorio_origen === "pais" ? "el país del evento" : "el nombre de la campaña"}` : undefined}>
+                          {c.territorio ? REGION_LABEL[c.territorio] ?? c.territorio : "—"}
                         </td>
                         <td style={tdStyle}>
-                          <span style={{ color: METRICAS.find((m) => m.key === c.etapa_reporte)?.color, fontWeight: 600 }}>{c.outbound_stage ?? "—"}</span>
+                          <span style={{ color: METRICAS.find((m) => m.key === c.etapa_reporte)?.color ?? "var(--fg-quaternary)", fontWeight: 600 }}>{c.outbound_stage ?? "—"}</span>
                         </td>
                         <td style={{ ...tdStyle, color: c.assigned_bdr_name ? "inherit" : "var(--fg-status-warning)" }}>{c.assigned_bdr_name ?? "Sin BDR"}</td>
-                        <td style={tdStyle}>
-                          {fmtDia(c.fecha_entrada)}{" "}
-                          <span style={{ fontSize: 11, fontWeight: vencida ? 700 : 500, color: vencida ? "var(--fg-status-error)" : "var(--fg-quaternary)" }}>
-                            · {dias} d{vencida ? " ⚠" : ""}
-                          </span>
-                        </td>
                         <td style={{ ...tdStyle, color: c.actividades === 0 ? "var(--fg-status-error)" : "inherit" }}>{c.actividades}</td>
                       </tr>
                     );
@@ -582,24 +621,35 @@ export function ReporteSemanal({
         </div>
       </div>
 
-      {/* Evolución semanal (todas las métricas comparten unidad: empresas) */}
+      {/* Evolución semanal: pills para elegir qué series se ven (José 2026-09-03) */}
       <div className="card" style={{ marginBottom: 12 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
           <span className="section-title" style={{ marginBottom: 0 }}>Evolución semanal</span>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            {METRICAS.filter((m) => m.card).map((m) => (
-              <button
-                key={m.key}
-                onClick={() => pickMetric(m.key)}
-                style={{ all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, color: "var(--fg-secondary)", fontWeight: m.key === metric ? 700 : 500 }}
-              >
-                <span style={{ width: 8, height: 8, borderRadius: 2, background: m.color, display: "inline-block" }} />
-                {m.label}
-              </button>
-            ))}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} title="Click para mostrar u ocultar cada métrica">
+            {METRICAS.map((m) => {
+              const on = visibles.has(m.key);
+              return (
+                <button
+                  key={m.key}
+                  onClick={() => toggleSerie(m.key)}
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 5,
+                    padding: "3px 10px", borderRadius: 999, fontSize: 10, cursor: "pointer",
+                    border: `1px solid ${on ? m.color : "var(--border-tertiary)"}`,
+                    background: on ? m.color : "var(--bg-primary)",
+                    color: on ? "var(--bg-primary)" : "var(--fg-quaternary)",
+                    fontWeight: m.key === metric ? 700 : 500,
+                    opacity: on ? 1 : 0.8,
+                  }}
+                >
+                  {!on && <span style={{ width: 7, height: 7, borderRadius: "50%", background: m.color, display: "inline-block" }} />}
+                  {m.label}
+                </button>
+              );
+            })}
           </div>
         </div>
-        <EvolucionChart semanas={semanas} weekIdx={weekIdx} metric={metric} valor={valor} onPick={pickWeek} />
+        <EvolucionChart semanas={semanas} weekIdx={weekIdx} metric={metric} series={series} valor={valor} onPick={pickWeek} />
       </div>
 
       {/* Resumen de la semana */}
@@ -620,7 +670,7 @@ export function ReporteSemanal({
               {METRICAS.map((m) => {
                 const val = valor(w, m.key);
                 const d = delta(m.key);
-                const pct = m.key === "entregadas" || m.key === "wons" ? null : w.entregadas > 0 ? Math.round((val / w.entregadas) * 100) : null;
+                const p = m.key === "entregadas" || m.key === "wons" ? null : pct(val, w.entregadas);
                 return (
                   <tr
                     key={m.key}
@@ -637,7 +687,7 @@ export function ReporteSemanal({
                       {val || "—"}
                       {m.key === "wons" && w.mrr > 0 && <span className="text-muted" style={{ fontWeight: 500, marginLeft: 6 }}>{formatCurrency(w.mrr)}</span>}
                     </td>
-                    <td style={{ ...tdStyle, color: "var(--fg-secondary)" }}>{pct !== null && val ? `${pct}%` : "—"}</td>
+                    <td style={{ ...tdStyle, color: "var(--fg-secondary)" }}>{p !== null && val ? fmtPct(p) : "—"}</td>
                     <td style={tdStyle}>
                       {d === null ? <span className="text-muted">—</span>
                         : d > 0 ? <span style={{ color: "var(--fg-status-success)" }}>↑ {d}</span>
@@ -650,19 +700,68 @@ export function ReporteSemanal({
                   </tr>
                 );
               })}
+              {CONVERSIONES.map((c) => {
+                const v = pct(c.num(w), c.den(w));
+                const pv = prev ? pct(c.num(prev), c.den(prev)) : null;
+                const dpp = v !== null && pv !== null ? Math.round((v - pv) * 10) / 10 : null;
+                return (
+                  <tr key={c.key} style={{ borderTop: "1px solid var(--border-tertiary)", fontStyle: "italic", color: "var(--fg-secondary)" }} title={c.detalle}>
+                    <td style={{ ...tdStyle, paddingLeft: 24 }}>{c.label}</td>
+                    <td style={{ ...tdStyle, fontWeight: 700 }}>{fmtPct(v)}</td>
+                    <td style={{ ...tdStyle, fontSize: 11 }}>{c.num(w)} / {c.den(w)}</td>
+                    <td style={tdStyle}>
+                      {dpp === null ? <span className="text-muted">—</span>
+                        : dpp > 0 ? <span style={{ color: "var(--fg-status-success)" }}>↑ {dpp} pp</span>
+                        : dpp < 0 ? <span style={{ color: "var(--fg-status-error)" }}>↓ {Math.abs(dpp)} pp</span>
+                        : <span className="text-muted">= igual</span>}
+                    </td>
+                    <td style={tdStyle}>
+                      <span className="badge" style={{ background: "var(--bg-secondary)", color: "var(--fg-secondary)", fontSize: 10 }}>Conversión</span>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
         <div className="text-muted" style={{ fontSize: 10, padding: "8px 14px", lineHeight: 1.5 }}>
-          Cada empresa cuenta en UNA fila según su Outbound Stage actual en Attio; las cinco etapas + Otros suman Entregadas.
-          Los filtros de campaña y BDR de arriba aplican (una empresa con varios tags entra en cada uno; los negocios ganados
-          solo filtran por campaña); el filtro de fechas no — su eje es la fecha del evento y el de este reporte, la semana de
-          entrega. <strong>La fecha de entrada a PRE-QM es de la EMPRESA</strong> (su última entrada al stage), no del evento:
-          una empresa taggeada a varios eventos cae en la semana en que entró a PRE-QM, que puede ser la de otro evento — por eso
-          con una campaña filtrada pueden verse semanas sueltas con 1 o 2 empresas además de la entrega principal. Las empresas
-          que nunca pasaron por PRE-QM no tienen semana y quedan fuera (se avisa arriba). Click en una métrica para ver sus empresas.
+          Cada empresa cuenta UNA vez y cae en la semana de la fecha de su <strong>último evento/campaña</strong> (si el evento no tiene
+          fecha mapeada se toma la fecha del nombre de la campaña, marcada con ≈). Su estado es el Outbound Stage actual en Attio; las que
+          siguen sin procesar o quedaron en Recycle/Lost están dentro de Entregadas pero no tienen fila propia, por eso las etapas no suman
+          Entregadas. Los filtros de campaña, BDR y fechas del pipeline de abajo <strong>no</strong> afectan este reporte — solo región y período.
+          Los negocios ganados van por fecha de cierre y excluyen los deals marcados Upgrade / Add On. Click en una métrica para ver sus empresas.
         </div>
       </div>
+    </div>
+  );
+}
+
+function PillGroup({ items, active, onPick, title, compact }: {
+  items: { key: string; label: string }[]; active: string; onPick: (k: string) => void; title?: string; compact?: boolean;
+}) {
+  return (
+    <div style={{ display: "inline-flex", gap: 4, flexWrap: "wrap" }} title={title}>
+      {items.map((it) => {
+        const on = it.key === active;
+        return (
+          <button
+            key={it.key}
+            onClick={() => onPick(it.key)}
+            style={{
+              padding: compact ? "4px 10px" : "5px 12px",
+              borderRadius: 999,
+              fontSize: compact ? 11 : 12,
+              fontWeight: on ? 700 : 500,
+              cursor: "pointer",
+              border: `1px solid ${on ? "var(--fg-primary)" : "var(--border-tertiary)"}`,
+              background: on ? "var(--fg-primary)" : "var(--bg-primary)",
+              color: on ? "var(--bg-primary)" : "var(--fg-secondary)",
+            }}
+          >
+            {it.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -694,25 +793,26 @@ function Sparkline({ values, color, highlightIdx }: { values: number[]; color: s
   );
 }
 
-// Líneas por métrica sobre las mismas semanas (misma unidad: empresas). La métrica
-// seleccionada va resaltada; click en una semana la selecciona.
+// Líneas por métrica sobre las mismas semanas (misma unidad: empresas / deals). Solo se dibujan
+// las series visibles (pills); la métrica seleccionada va resaltada; click en una semana la selecciona.
 function EvolucionChart({
   semanas,
   weekIdx,
   metric,
+  series,
   valor,
   onPick,
 }: {
   semanas: Semana[];
   weekIdx: number;
   metric: MetricKey;
+  series: MetricDef[];
   valor: (s: Semana, k: MetricKey) => number;
   onPick: (i: number) => void;
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const W = 720, H = 190, padL = 34, padR = 12, padT = 10, padB = 26;
   const cw = W - padL - padR, ch = H - padT - padB;
-  const series = METRICAS.filter((m) => m.card);
   const maxV = Math.max(1, ...semanas.flatMap((s) => series.map((m) => valor(s, m.key)))) * 1.1;
   const x = (i: number) => padL + (semanas.length > 1 ? (i / (semanas.length - 1)) * cw : cw / 2);
   const y = (v: number) => padT + ch - (v / maxV) * ch;
@@ -745,7 +845,7 @@ function EvolucionChart({
           const sel = m.key === metric;
           const d = semanas.map((s, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(valor(s, m.key)).toFixed(1)}`).join(" ");
           return (
-            <g key={m.key} opacity={sel ? 1 : 0.45}>
+            <g key={m.key} opacity={sel || series.length === 1 ? 1 : 0.5}>
               <path d={d} fill="none" stroke={m.color} strokeWidth={sel ? 2.5 : 1.25} strokeDasharray={m.key === "wons" ? "4 3" : undefined} strokeLinejoin="round" />
               {semanas.map((s, i) => (
                 <circle key={s.semana} cx={x(i)} cy={y(valor(s, m.key))} r={i === focus ? (sel ? 5 : 3.5) : sel ? 3 : 2} fill={i === focus ? m.color : "var(--bg-primary)"} stroke={m.color} strokeWidth={1.5} />

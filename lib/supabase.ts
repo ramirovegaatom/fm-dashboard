@@ -204,6 +204,9 @@ export type WonByCloseDate = {
   // pais: override manual por deal (fm_deal_territory_overrides). Jose 2026-07-10.
   // Si está seteado, su territorio le gana al derivado del evento.
   pais: string | null;
+  // Checkbox "Upgrade / Add On" de Attio (sync v61). La vista ya EXCLUYE los true
+  // (decisión 2026-09-03: los upgrades de clientes no son wins de evento); queda por transparencia.
+  upgrade_add_on: boolean;
 };
 
 // Cola de revisión de la pestaña Deals (fm_deals_sin_atribuir), pedido José 2026-08-19:
@@ -486,26 +489,29 @@ export async function fetchBdrCompanies(): Promise<BdrCompany[]> {
   return out;
 }
 
-// Reporte semanal por cohorte de ENTREGA (fm_cohortes_entrega) — pedido José + Cande
-// 2026-08-26. Una fila por EMPRESA (dedup entre tags). Semana = la de fecha_entrada_pre_qm
-// (trigger de Attio: última entrada al stage PRE-QM). etapa_reporte = estado ACTUAL de la
-// empresa según outbound_stage (Attio no guarda historia de stage → el reporte es "cómo
-// está hoy cada cohorte", no "qué pasó durante la semana"). Decisiones Ramiro 2026-08-26:
-// qm incluye QM SHOW / NO SHOW / Cliente (una QM no desaparece cuando ocurre la reunión);
-// universo = empresas taggeadas a evento con fecha de entrada (no filtra por lead source).
+// Reporte semanal de gestión (fm_cohortes_entrega) — pedido José + Cande 2026-08-26, v2 José
+// 2026-09-03. Una fila por EMPRESA (dedup entre tags). Semana = la de la FECHA DEL ÚLTIMO
+// EVENTO/CAMPAÑA de la empresa (fm_campana_fechas; si la campaña no tiene fecha mapeada, la
+// fecha en su nombre — fm_fecha_desde_nombre). Sin ningún atributo adicional: antes era
+// fecha_entrada_pre_qm (de la empresa, no del evento) y dejaba afuera ~1.000 empresas.
+// territorio = región del último evento (territorio del evento → país → nombre de la campaña),
+// para el filtro Cono Norte / Cono Sur / Brasil. etapa_reporte = estado ACTUAL según
+// outbound_stage (Attio no guarda historia de stage → "cómo está hoy cada cohorte").
 export type CohorteEntrega = {
   attio_company_id: string;
   company_name: string | null;
-  campanas: string[];
-  fecha_entrada_pre_qm: string;
-  fecha_entrada: string; // YYYY-MM-DD (UTC)
-  semana_entrega: string; // lunes (YYYY-MM-DD)
+  campanas: string[]; // todos los tags de la empresa (alfabético)
+  campana_ultima: string | null; // la campaña cuyo evento define la semana (el más reciente)
+  evento_fecha: string | null; // YYYY-MM-DD — fecha del ÚLTIMO evento/campaña de la empresa
+  fecha_origen: "evento" | "nombre" | null; // 'nombre' = parseada del nombre de la campaña (sin fecha mapeada)
+  semana_entrega: string | null; // lunes (YYYY-MM-DD) de evento_fecha; null si ninguna campaña tiene fecha
+  territorio: "Norte" | "Sur" | "Brasil" | null; // región del último evento (evento → país → nombre)
+  territorio_origen: "evento" | "pais" | "nombre" | null;
   outbound_stage: string | null;
   outbound_stage_since: string | null; // active_from del stage vigente en Attio
-  empresa_procesable: string | null;
-  lead_source: string | null;
   lifecycle_stage: string | null;
   assigned_bdr_name: string | null;
+  fecha_entrada_pre_qm: string | null; // referencia; ya no define la semana (José 2026-09-03)
   etapa_reporte: "por_procesar" | "procesando" | "procesada" | "qm" | "descartada" | "otros";
   actividades: number; // llamadas + WhatsApps de prospección (misma definición que Seguimiento)
 };
