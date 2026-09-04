@@ -204,9 +204,11 @@ export type WonByCloseDate = {
   // pais: override manual por deal (fm_deal_territory_overrides). Jose 2026-07-10.
   // Si está seteado, su territorio le gana al derivado del evento.
   pais: string | null;
-  // Checkbox "Upgrade / Add On" de Attio (sync v61). La vista ya EXCLUYE los true
-  // (decisión 2026-09-03: los upgrades de clientes no son wins de evento); queda por transparencia.
+  // Checkbox "Upgrade / Add On" de Attio (sync v61). La vista ya EXCLUYE los upgrades
+  // (decisión 2026-09-03: los upgrades de clientes no son wins de evento) por el checkbox Y por el
+  // nombre del deal (José 2026-09-04: el checkbox estaba marcado en 2 de 10). Quedan por transparencia.
   upgrade_add_on: boolean;
+  upgrade_motivo: "flag" | "nombre" | null; // siempre null en las filas que devuelve la vista
 };
 
 // Cola de revisión de la pestaña Deals (fm_deals_sin_atribuir), pedido José 2026-08-19:

@@ -650,9 +650,9 @@ export const METRIC_LINEAGE: Record<string, LineageEntry> = {
     flow: COHORTE_FLOW,
     table: "fm_cohortes_entrega",
     column: "etapa_reporte = 'qm'",
-    filter: "outbound_stage = QM AGENDADA, QM SHOW, QM NO SHOW o Cliente",
+    filter: "outbound_stage = QM AGENDADA, QM SHOW o QM NO SHOW",
     update: "Sync Attio phase=tc (cron 30 min / botón)",
-    note: "Decisión Ramiro 2026-08-26: contar toda empresa que LLEGÓ a QM, esté donde esté hoy. Con solo 'QM AGENDADA' una QM desaparecía del reporte cuando ocurría la reunión (cohorte 10-08: 7 agendadas vs 17 ya en SHOW/NO SHOW/Cliente).",
+    note: "Cuenta la QM aunque la reunión ya haya ocurrido (SHOW / NO SHOW): con solo 'QM AGENDADA' una QM desaparecía del reporte cuando ocurría la reunión. José 2026-09-04: el stage Cliente NO cuenta como QM (antes sí, decisión Ramiro 2026-08-26) — esas empresas quedan dentro de Entregadas sin tarjeta propia.",
   },
   cohorte_descartadas: {
     label: "Descalificadas",
@@ -667,9 +667,9 @@ export const METRIC_LINEAGE: Record<string, LineageEntry> = {
     label: "Negocios ganados (cierre en la semana)",
     flow: ATTIO_DEALS_FLOW,
     table: "fm_won_by_close_date",
-    column: "COUNT / SUM(value_amount) por semana de close_date WHERE stage = 'Won 🎉' AND campana_evento no vacío AND upgrade_add_on = false",
+    column: "COUNT / SUM(value_amount) por semana de close_date WHERE stage = 'Won 🎉' AND campana_evento no vacío AND NO es upgrade (checkbox upgrade_add_on o nombre del deal con upgrade / upsell / renovación / add on / ampliación)",
     update: "Sync Attio (cron horario de deals / botón)",
-    note: "Ubicados por FECHA DE CIERRE del deal, no por la semana del evento de la empresa. Misma definición que la pestaña Deals. Desde 2026-09-03 se excluyen los deals marcados Upgrade / Add On en Attio (upgrades de clientes existentes — casos Colectivo23 / UVG — no son wins de evento; decisión Ramiro + José). Los deals de evento sin campaña atribuida (cola de revisión) no cuentan hasta atribuirse.",
+    note: "Ubicados por FECHA DE CIERRE del deal, no por la semana del evento de la empresa. Misma definición que la pestaña Deals. Desde 2026-09-03 se excluyen los upgrades de clientes existentes (no son wins de evento; decisión Ramiro + José): por el checkbox Upgrade / Add On de Attio (Colectivo23, UVG) y, desde 2026-09-04, también por el nombre del deal (CODACA renovación, LITS, Humanitas, Telesentinel… — el checkbox estaba marcado en 2 de 10). Lo correcto sigue siendo marcar el checkbox en Attio. Los deals de evento sin campaña atribuida (cola de revisión) no cuentan hasta atribuirse.",
   },
   deals_sin_atribuir: {
     label: "Deals de evento sin atribuir (cola de revisión)",

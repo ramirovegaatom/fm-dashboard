@@ -18,7 +18,11 @@ import { formatCurrency } from "@/lib/format";
 // Estados del reporte (José 2026-09-03): Entregadas, Procesando, Procesadas, QMs agendadas,
 // Descalificadas y Negocios ganados. "Por procesar" y "Otros" (Recycle/Lost) NO se muestran —
 // siguen dentro de Entregadas. Se agregan las conversiones de la semana (% entre etapas).
-// Los Wons van por FECHA DE CIERRE del deal, sin upgrades (Upgrade / Add On excluidos en la vista).
+// Los Wons van por FECHA DE CIERRE del deal, sin upgrades (Upgrade / Add On excluidos en la vista:
+// por el checkbox de Attio o, como el checkbox casi no se usa, por el nombre del deal —
+// upgrade / upsell / renovación / add on / ampliación; feedback José 2026-09-04).
+// QMs agendadas = QM AGENDADA / QM SHOW / QM NO SHOW. El stage Cliente NO cuenta (José 2026-09-04:
+// "si es cliente no debería contar en ese apartado QM") — va a "otros", dentro de Entregadas.
 
 const FILAS_POR_PAGINA = 10;
 const SPARK_SEMANAS = 10;
@@ -84,8 +88,8 @@ const METRICAS: MetricDef[] = [
     color: "var(--fg-status-success)",
     tag: "Respuesta positiva",
     lineage: "cohorte_qm",
-    criterios: [["Outbound Stage", "QM AGENDADA, QM SHOW, QM NO SHOW o Cliente"]],
-    disclaimer: "Cuenta toda empresa que llegó a QM, esté donde esté hoy — así una QM no desaparece del reporte cuando ocurre la reunión.",
+    criterios: [["Outbound Stage", "QM AGENDADA, QM SHOW o QM NO SHOW"]],
+    disclaimer: "Cuenta la QM aunque la reunión ya haya ocurrido (SHOW / NO SHOW), así no desaparece del reporte. Las empresas en stage Cliente no cuentan como QM (José 2026-09-04): quedan dentro de Entregadas, sin tarjeta propia.",
   },
   {
     key: "descartada",
@@ -105,10 +109,10 @@ const METRICAS: MetricDef[] = [
     criterios: [
       ["Deal stage", "Won 🎉"],
       ["Campaña/Evento del deal", "No vacío"],
-      ["Upgrade / Add On", "No (los upgrades de clientes existentes no cuentan)"],
+      ["Upgrade / Add On", "No — por el checkbox de Attio o porque el nombre del deal dice upgrade / upsell / renovación / add on / ampliación"],
       ["Semana", "Fecha de cierre del deal (close_date)"],
     ],
-    disclaimer: "Se ubican por fecha de cierre del deal, no por la semana del evento de la empresa. Los deals de evento sin campaña atribuida (cola de revisión en Deals) no cuentan hasta atribuirse.",
+    disclaimer: "Se ubican por fecha de cierre del deal, no por la semana del evento de la empresa. Los upgrades y renovaciones de clientes existentes no son wins de evento: se excluyen por el checkbox Upgrade / Add On de Attio y, como casi nadie lo marca, también por el nombre del deal. Los deals de evento sin campaña atribuida (cola de revisión en Deals) no cuentan hasta atribuirse.",
   },
 ];
 
@@ -729,7 +733,7 @@ export function ReporteSemanal({
           fecha mapeada se toma la fecha del nombre de la campaña, marcada con ≈). Su estado es el Outbound Stage actual en Attio; las que
           siguen sin procesar o quedaron en Recycle/Lost están dentro de Entregadas pero no tienen fila propia, por eso las etapas no suman
           Entregadas. Los filtros de campaña, BDR y fechas del pipeline de abajo <strong>no</strong> afectan este reporte — solo región y período.
-          Los negocios ganados van por fecha de cierre y excluyen los deals marcados Upgrade / Add On. Click en una métrica para ver sus empresas.
+          Las empresas en stage Cliente no cuentan como QM. Los negocios ganados van por fecha de cierre y excluyen upgrades y renovaciones (checkbox Upgrade / Add On de Attio o nombre del deal). Click en una métrica para ver sus empresas.
         </div>
       </div>
     </div>
